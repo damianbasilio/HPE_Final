@@ -1,12 +1,3 @@
-# Tabla de costes operativos del Gemelo Digital de Aruba.
-#
-# Los valores `coste_min` y `coste_activacion` son los del enunciado oficial
-# (no se pueden modificar para los vehiculos listados). `dotacion` es el
-# numero de efectivos asignados al vehiculo y `velocidad_max` es el tope que
-# usa la fisica de la unidad.
-#
-# Las claves antiguas `minuto` y `activacion` se conservan como alias para
-# retrocompatibilidad con cualquier consumidor previo.
 
 
 COSTOS_OPERATIVOS = {
@@ -39,7 +30,6 @@ COSTOS_OPERATIVOS = {
     },
 }
 
-
 def obtener_tarifa(tipo: str, energia: str) -> dict:
     base = COSTOS_OPERATIVOS.get((tipo, energia))
     if not base:
@@ -47,11 +37,10 @@ def obtener_tarifa(tipo: str, energia: str) -> dict:
 
     return {
         **base,
-        # Alias retrocompatibles con la tabla original
+
         "minuto": base["coste_min"],
         "activacion": base["coste_activacion"],
     }
-
 
 def tipos_validos() -> tuple:
     return tuple(sorted({clave[0] for clave in COSTOS_OPERATIVOS.keys()}))

@@ -1,19 +1,15 @@
-# Unidad Proteccion Civil. Apoyo polivalente:
-#   - Material desplegado (carpas, sacos, generadores, kits sanitarios).
-#   - Voluntarios activos (la dotacion puede ser variable: 1-2).
-#   - Mision en curso (logistica | evacuacion | balizamiento | apoyo).
+
 
 from vehiculo_base import VehiculoBase
 
 MISIONES_PC = ('logistica', 'evacuacion', 'balizamiento', 'apoyo', 'otros')
-
 
 class VehiculoProteccionCivil(VehiculoBase):
     TIPO = 'proteccion_civil'
     ESTADO_BASE = 'en_base'
     VELOCIDAD_CRUCERO = 0
 
-    KITS_INICIAL = 30   # Kits sanitarios / mantas / agua a bordo
+    KITS_INICIAL = 30   
 
     def __init__(self, id_vehiculo, propulsion='combustion', metadatos=None):
         super().__init__(id_vehiculo, propulsion=propulsion, metadatos=metadatos)

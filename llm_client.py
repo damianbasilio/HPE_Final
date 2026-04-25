@@ -15,7 +15,6 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-
 def _build_payload(messages: List[dict], model: Optional[str] = None) -> dict:
     payload = {
         "model": model or LLM_MODEL,
@@ -31,7 +30,6 @@ def _build_payload(messages: List[dict], model: Optional[str] = None) -> dict:
         }
 
     return payload
-
 
 def chat_completion(messages: List[dict], model: Optional[str] = None) -> str:
     url = f"{LLM_BASE_URL}/chat/completions"

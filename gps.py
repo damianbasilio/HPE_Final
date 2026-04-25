@@ -1,18 +1,15 @@
-# Simulador de posicion GPS para el vehiculo
+
 
 import random
 import math
 from config import CENTRO_ARUBA
 
-
 class SimuladorGPS:
-    # Genera movimiento GPS siguiendo rutas reales
 
     def __init__(self, lat=None, lon=None):
         self.latitud = lat or CENTRO_ARUBA[0]
         self.longitud = lon or CENTRO_ARUBA[1]
 
-        # Datos de la ruta actual
         self.ruta = None
         self.indice_ruta = 0
         self.progreso_ruta = 0.0
@@ -44,7 +41,7 @@ class SimuladorGPS:
         return total
 
     def _haversine(self, punto1, punto2):
-        # Calcula distancia entre dos puntos en km
+
         lat1, lon1 = math.radians(punto1[0]), math.radians(punto1[1])
         lat2, lon2 = math.radians(punto2[0]), math.radians(punto2[1])
 
@@ -117,7 +114,7 @@ class SimuladorGPS:
         }
 
     def obtener_coordenadas_ligero(self):
-        # Coordenadas reducidas para difusion frecuente
+
         return {
             'latitud': round(self.latitud, 6),
             'longitud': round(self.longitud, 6),

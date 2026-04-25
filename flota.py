@@ -1,12 +1,4 @@
-# Gestor de flota del Gemelo Digital de Aruba.
-#
-# Encapsula:
-#   - Creacion de las 6 unidades base (1 policia combustion, 1 policia electrica,
-#     1 ambulancia, 1 bomberos, 1 proteccion civil, 1 dron).
-#   - Loop de actualizacion (delta_time) sobre cada unidad.
-#   - Asignacion automatica desde eventos Kafka (`aruba.events`).
-#   - Asignacion / cierre manual desde el panel de Operador.
-#   - Despliegue opcional de un dron scout previo a la unidad terrestre.
+
 
 import logging
 import threading
@@ -22,8 +14,6 @@ from vehiculo_base import VehiculoBase
 
 logger = logging.getLogger(__name__)
 
-
-# Mapeo de tipo de evento (`aruba.events`) -> unidad principal que lo atiende.
 MAPA_EVENTO_A_UNIDAD = {
     "fire": "bomberos",
     "hazmat_spill": "bomberos",
@@ -39,10 +29,8 @@ MAPA_EVENTO_A_UNIDAD = {
     "marine_rescue": "proteccion_civil",
 }
 
-# Tipos de evento que merecen un dron scout en cuanto entran (mejora opcional).
 EVENTOS_CON_SCOUT = {"fire", "flood", "marine_rescue", "earthquake", "hazmat_spill"}
 
-# Plantilla por defecto: 6 unidades cubriendo todos los tipos.
 PLANTILLA_DEFECTO: List[tuple] = [
     ("policia",          "combustion", "Patrulla 01"),
     ("policia",          "electrico",  "Patrulla 02 EV"),
@@ -51,7 +39,6 @@ PLANTILLA_DEFECTO: List[tuple] = [
     ("proteccion_civil", "combustion", "PC 01"),
     ("dron",             "unico",      "Dron 01"),
 ]
-
 
 def _duracion_por_severidad(severidad: Optional[str]) -> int:
     if severidad == "critical":
@@ -62,7 +49,6 @@ def _duracion_por_severidad(severidad: Optional[str]) -> int:
         return 20
     return 10
 
-
 def _intensidad_por_severidad(severidad: Optional[str]) -> float:
     if severidad == "critical":
         return 0.9
@@ -72,20 +58,15 @@ def _intensidad_por_severidad(severidad: Optional[str]) -> float:
         return 0.5
     return 0.3
 
-
 class FleetManager:
     def __init__(self, plantilla: Optional[List[tuple]] = None):
         self._lock = threading.RLock()
         self.vehiculos: Dict[str, VehiculoBase] = {}
-        # incident_id -> dict del incidente (persistente para histórico)
+
         self.incidentes: Dict[str, dict] = {}
-        # vehiculo_id -> incident_id en curso (asignacion 1:1 por unidad)
+
         self.asignaciones: Dict[str, str] = {}
         self._crear_flotas_base(plantilla or PLANTILLA_DEFECTO)
-
-    # ------------------------------------------------------------------
-    # Construccion de la flota
-    # ------------------------------------------------------------------
 
     def _crear_flotas_base(self, plantilla: List[tuple]) -> None:
         for tipo, energia, nombre in plantilla:
@@ -101,10 +82,6 @@ class FleetManager:
         except Exception as exc:
             logger.warning("No se pudo crear unidad %s/%s: %s", tipo, energia, exc)
             return None
-
-    # ------------------------------------------------------------------
-    # Acceso de solo lectura
-    # ------------------------------------------------------------------
 
     def obtener_vehiculo(self, vid: str) -> Optional[VehiculoBase]:
         with self._lock:
@@ -146,10 +123,6 @@ class FleetManager:
             return None
         return self.incidentes.get(inc_id)
 
-    # ------------------------------------------------------------------
-    # Loop principal
-    # ------------------------------------------------------------------
-
     def actualizar(self, factor_entorno: float = 1.0) -> None:
         factor = float(factor_entorno or 1.0)
         with self._lock:
@@ -185,16 +158,12 @@ class FleetManager:
             inc['incident_status'] = 'on_scene'
             inc['status'] = 'on_scene'
         elif activo == veh.ESTADO_BASE.lower():
-            # La unidad ha vuelto a su base/patrulla -> incidente cerrado.
+
             inc['incident_status'] = 'resolved'
             inc['status'] = 'resolved'
             inc['resolved_at'] = datetime.now().isoformat()
             inc['coste_total_eur'] = round(veh.coste_total_eur, 2)
             self.asignaciones.pop(veh.id, None)
-
-    # ------------------------------------------------------------------
-    # Eventos Kafka -> asignacion automatica
-    # ------------------------------------------------------------------
 
     def manejar_evento(self, evento: dict) -> Optional[str]:
         if not isinstance(evento, dict):
@@ -209,7 +178,6 @@ class FleetManager:
         unidad_objetivo = MAPA_EVENTO_A_UNIDAD.get(tipo_evento, 'policia')
         incidente = self._construir_incidente(evento, unidad_objetivo)
 
-        # Mejora opcional: dron scout previo en eventos de alto impacto.
         if tipo_evento in EVENTOS_CON_SCOUT:
             self._desplegar_scout_si_disponible(incidente)
 
@@ -254,10 +222,6 @@ class FleetManager:
             return True
         return veh.en_camino or veh.en_escena or veh.reabasteciendo
 
-    # ------------------------------------------------------------------
-    # Activacion de intervencion (autom. y manual)
-    # ------------------------------------------------------------------
-
     def _activar_intervencion(self, unidad: VehiculoBase, incidente: dict) -> str:
         destino = (incidente['lat'], incidente['lon'])
         origen = (unidad.gps.latitud, unidad.gps.longitud)
@@ -272,7 +236,6 @@ class FleetManager:
         velocidad_nominal = max(40, min(unidad.velocidad_max_unidad, 110))
         tiempo_viaje_s = int((distancia_km / velocidad_nominal) * 3600) if distancia_km > 0 else 60
 
-        # Mejora opcional: ETA dinamico con clima/eventos.
         factor = max(0.2, min(1.5, float(getattr(unidad, 'factor_entorno', 1.0) or 1.0)))
         if factor < 1.0:
             tiempo_viaje_s = int(tiempo_viaje_s / factor)
@@ -368,10 +331,6 @@ class FleetManager:
 
         return mods
 
-    # ------------------------------------------------------------------
-    # Acciones manuales del Operador
-    # ------------------------------------------------------------------
-
     def asignar_manual(self, vehiculo_id: str, incidente_data: dict) -> Optional[str]:
         with self._lock:
             veh = self.vehiculos.get(vehiculo_id)
@@ -416,10 +375,6 @@ class FleetManager:
                 )
             veh.terminar_escenario()
             return True
-
-    # ------------------------------------------------------------------
-    # Mejora opcional: dron scout previo a la unidad terrestre
-    # ------------------------------------------------------------------
 
     def _desplegar_scout_si_disponible(self, incidente_principal: dict) -> Optional[str]:
         with self._lock:

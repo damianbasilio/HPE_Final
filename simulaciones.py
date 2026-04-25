@@ -1,14 +1,4 @@
-# Gestor de simulaciones del Gemelo Digital de Aruba.
-#
-# Soporta dos modos:
-#   - 'tiempo_real': simulacion principal en curso (singleton, siempre activa).
-#   - 'replay':      reproduccion historica desde un instante (started_at) leyendo
-#                    el bus Kafka desde el offset earliest y filtrando por timestamp.
-#
-# Para los replays se crea un consumidor Kafka independiente con un group_id
-# unico por simulacion (asi no interfiere con los consumidores en vivo del
-# bus principal). Los eventos historicos se inyectan al FleetManager con la
-# misma logica que los eventos en vivo (`fleet.manejar_evento`).
+
 
 import json
 import logging
@@ -19,7 +9,6 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
-
 
 def _parsear_iso(valor) -> Optional[datetime]:
     if not valor:
@@ -32,7 +21,6 @@ def _parsear_iso(valor) -> Optional[datetime]:
         return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except (ValueError, TypeError):
         return None
-
 
 class SimulacionReplay:
     def __init__(self, sim_id: str, started_at: datetime, speed: float, topics: List[str], fleet, bus):
@@ -137,7 +125,6 @@ class SimulacionReplay:
                         self._procesar(valor)
                         self.eventos_procesados += 1
 
-                        # Pausa entre eventos segun la velocidad.
                         time.sleep(max(0.0, 1.0 / self.speed))
         except Exception as exc:
             logger.exception("[%s] Replay fallo: %s", self.sim_id, exc)
@@ -153,16 +140,13 @@ class SimulacionReplay:
                         self.sim_id, self.eventos_procesados)
 
     def _procesar(self, valor: dict):
-        # Solo se inyectan eventos. El clima del replay se ignora a nivel de flota
-        # (la flota ya recibe el clima en vivo). Si quisierais simular tambien el
-        # clima historico, se podria notificar a `entorno.py` aqui.
+
         if not isinstance(valor, dict):
             return
         if valor.get('type') and valor.get('latitude') is not None:
             valor = dict(valor)
             valor['origen'] = f'replay:{self.sim_id}'
             self._fleet.manejar_evento(valor)
-
 
 class GestorSimulaciones:
     def __init__(self, fleet, bus):

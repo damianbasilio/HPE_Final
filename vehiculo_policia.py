@@ -1,13 +1,8 @@
-# Unidad policial. Idiosincrasia operativa propia:
-#   - Nivel de riesgo dinamico (0.0 - 1.0) que crece en intervenciones intensas
-#     y decae lentamente en patrulla.
-#   - Protocolo de contencion activo (ninguno | perimetro | dispersion | armado).
-#   - Estado de la dotacion (numero de agentes operativos).
+
 
 from vehiculo_base import VehiculoBase
 
 PROTOCOLOS_VALIDOS = ('ninguno', 'perimetro', 'dispersion', 'armado')
-
 
 class VehiculoPolicial(VehiculoBase):
     TIPO = 'policia'
@@ -21,7 +16,7 @@ class VehiculoPolicial(VehiculoBase):
         self.detenidos = 0
 
     def aplicar_modificadores_especificos(self, tipo_escenario, modificadores, intensidad):
-        # Cuando arranca un escenario, el riesgo escala con la intensidad.
+
         salto = 0.4 * float(intensidad or 0)
         self.riesgo_dinamico = min(1.0, self.riesgo_dinamico + salto)
 
@@ -40,7 +35,7 @@ class VehiculoPolicial(VehiculoBase):
             self.detenidos += int(detenidos)
 
     def actualizar_logica_especializada(self, delta_time):
-        # En patrulla normal el riesgo decae poco a poco.
+
         if str(self.escenario_activo).lower() == self.ESTADO_BASE.lower():
             self.riesgo_dinamico = max(0.05, self.riesgo_dinamico - 0.0005 * delta_time)
 

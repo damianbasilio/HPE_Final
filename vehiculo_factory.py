@@ -1,8 +1,4 @@
-# Fabrica unica para instanciar cualquier unidad del Gemelo Digital.
-#
-# Punto unico de creacion. Si manana migrais a microservicios y cada tipo de
-# vehiculo vive en un servicio distinto, basta con cambiar este archivo (o
-# convertirlo en un cliente HTTP/Kafka que delegue al servicio correcto).
+
 
 import logging
 
@@ -15,8 +11,6 @@ from vehiculo_dron import VehiculoDron
 
 logger = logging.getLogger(__name__)
 
-
-# Registro tipo -> clase
 _REGISTRO = {
     'policia': VehiculoPolicial,
     'ambulancia': Ambulancia,
@@ -25,10 +19,8 @@ _REGISTRO = {
     'dron': VehiculoDron,
 }
 
-
 def tipos_disponibles():
     return list(_REGISTRO.keys())
-
 
 def crear_vehiculo(tipo, id_vehiculo, propulsion='combustion', metadatos=None):
     tipo = (tipo or '').lower()

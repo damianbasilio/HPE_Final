@@ -1,4 +1,4 @@
-/* ── SIMULADOR DASHBOARD MODERNO ── */
+
 .sim-container {
   min-height: 100vh;
   padding: 40px 60px 60px 60px;
@@ -30,12 +30,10 @@
   grid-row: auto;
 }
 
-/* Telemetria en columna izquierda */
 .sim-col-left .telemetry-panel {
   order: 1;
 }
 
-/* Entrada y resultados en columna derecha */
 .sim-col-right .scenario-input-panel {
   order: 1;
 }
@@ -44,7 +42,6 @@
   order: 3;
 }
 
-/* Paneles y tarjetas */
 .sim-panel {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -83,7 +80,6 @@
   font-weight: 300;
 }
 
-/* Panel de entrada de escenario */
 .scenario-input-panel {
   display: block;
   position: relative;
@@ -116,8 +112,6 @@
   font-size: 0.9rem;
   line-height: 1.6;
 }
-
-/* Panel de telemetria */
 
 .sim-metrics-grid {
   display: grid;
@@ -203,7 +197,6 @@
   line-height: 1.4;
 }
 
-/* Tarjetas de resultados */
 .sim-result-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -226,28 +219,20 @@
   position: relative;
   z-index: 1;
 }
-/* ============================================================
-   52Sec — Gemelo Digital Policial
-   UI Redesign: Deep Black / Colorful Accent / Sora
-   Inspired by Artificial Societies aesthetic
-   ============================================================ */
 
-/* Fuentes cargadas via <link> en base.html - NO usar @import aqui */
-
-/* Variables CSS */
 :root {
   --bg-base:        #0a0a0a;
   --bg-surface:     #0f0f0f;
   --bg-elevated:    #141414;
   --bg-card:        #111111;
 
-  /* Color de acento principal - turquesa electrico */
+  
   --accent:         #00e5c4;
   --accent-ghost:   rgba(0,229,196,0.08);
   --accent-border:  rgba(0,229,196,0.22);
   --accent-glow:    rgba(0,229,196,0.3);
 
-  /* Colores secundarios */
+  
   --blue:           #5b8dff;
   --blue-ghost:     rgba(91,141,255,0.1);
   --blue-border:    rgba(91,141,255,0.22);
@@ -278,11 +263,9 @@
   --font-mono:      'Consolas', 'Courier New', monospace;
 }
 
-/* Reset de estilos */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 html { font-size: 14px; scroll-behavior: smooth; height: 100%; }
 
-/* ═══════ INDICADOR DE ESTADO DE CONEXIÓN ═══════ */
 .connection-dot {
   width: 8px;
   height: 8px;
@@ -290,13 +273,11 @@ html { font-size: 14px; scroll-behavior: smooth; height: 100%; }
   flex-shrink: 0;
 }
 
-/* Conectado - verde pulsante */
 .connection-dot.connected {
   background: var(--accent);
   animation: pulse-connected 1.5s ease-in-out infinite;
 }
 
-/* Desconectado - rojo pulsante */
 .connection-dot.disconnected {
   background: var(--danger);
   animation: pulse-danger 1s ease-in-out infinite;
@@ -333,7 +314,6 @@ body {
   min-height: 100vh;
 }
 
-/* Fondo con rejilla sutil */
 body::before {
   content: '';
   position: fixed; inset: 0;
@@ -346,7 +326,6 @@ body::before {
   mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, black, transparent);
 }
 
-/* Resplandor ambiental */
 body::after {
   content: '';
   position: fixed; inset: 0;
@@ -357,7 +336,6 @@ body::after {
   pointer-events: none;
 }
 
-/* Estructura de contenido */
 .container {
   width: 100%;
   max-width: 1420px;
@@ -372,7 +350,6 @@ body::after {
   padding: 0;
 }
 
-/* Barra de navegacion */
 #navbar {
   position: fixed;
   top: 0; left: 0; right: 0;
@@ -472,7 +449,6 @@ body::after {
   background: rgba(239,68,68,0.07) !important;
 }
 
-/* Contenido principal */
 .main-content {
   padding-top: var(--nav-h);
   min-height: 100vh;
@@ -480,7 +456,6 @@ body::after {
   z-index: 1;
 }
 
-/* Botones */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -537,7 +512,6 @@ body::after {
 
 .btn-large { padding: 14px 32px; font-size: 0.95rem; min-height: 44px; }
 
-/* Botón especial para iniciar nuevo escenario */
 .results-section button[onclick*="iniciarNuevoEscenario"] {
   width: 100%;
   padding: 18px 32px;
@@ -566,7 +540,6 @@ body::after {
   box-shadow: none !important;
 }
 
-/* Formularios */
 .form-group { margin-bottom: 16px; }
 
 .form-group label {
@@ -611,7 +584,6 @@ body::after {
   font-family: var(--font-sans);
 }
 
-/* Insignias */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -641,7 +613,6 @@ body::after {
   50%       { opacity: 0.4; transform: scale(0.6); }
 }
 
-/* Estilos de secciones de resultados */
 .results-section {
   margin-bottom: 28px;
 }
@@ -710,7 +681,6 @@ body::after {
   font-weight: bold;
 }
 
-/* Panel de viabilidad - mejor espaciado */
 #viabilidad-box {
   padding: 24px;
   margin-bottom: 28px !important;
@@ -721,7 +691,6 @@ body::after {
   margin-bottom: 18px;
 }
 
-/* Panel de riesgos, impacto, plan */
 .sim-result-card {
   padding: 24px;
   display: flex;
@@ -752,7 +721,6 @@ body::after {
   margin-bottom: 28px !important;
 }
 
-/* Elementos del plan - mejor espaciado */
 .plan-item {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -780,7 +748,6 @@ body::after {
   font-weight: 700;
 }
 
-/* Rejilla de metricas - mejor espaciado */
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -799,7 +766,6 @@ body::after {
   word-break: break-word;
 }
 
-/* Mejor separación entre columnas de impacto/riesgos */
 .sim-panel-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -830,7 +796,6 @@ body::after {
   .metrics-grid { grid-template-columns: 1fr; gap: 8px; }
 }
 
-/* Pie de pagina */
 footer {
   background: var(--bg-surface);
   border-top: 1px solid var(--border);
@@ -846,16 +811,13 @@ footer p {
   margin-bottom: 3px;
 }
 
-/* Notificaciones tipo toast */
 @keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
-/* Barra de desplazamiento */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: var(--bg-base); }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
 
-/* Pagina de inicio */
 .hero {
   min-height: 100vh;
   display: flex;
@@ -940,7 +902,6 @@ footer p {
   animation: fadeUp 0.8s ease 0.55s forwards;
 }
 
-/* Visual del lado derecho del hero */
 .hero-right {
   position: relative;
   height: 460px;
@@ -1031,7 +992,6 @@ footer p {
 .panel-score-label { font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 3px; }
 .panel-score-val { font-family: var(--font-mono); font-size: 1.35rem; color: var(--accent); }
 
-/* Secciones del landing */
 .section-gap    { padding: 80px 0; }
 .section-gap-sm { padding: 60px 0; }
 
@@ -1067,7 +1027,6 @@ footer p {
 
 .step-accent { width: 26px; height: 2px; background: var(--accent); border-radius: 2px; margin-bottom: 16px; }
 
-/* Franja de llamada a la accion */
 .cta-strip {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -1109,7 +1068,6 @@ footer p {
 
 @media (max-width: 768px) { .cta-strip { flex-direction: column; align-items: flex-start; padding: 30px 20px; } }
 
-/* Funcionalidades */
 .features-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1155,7 +1113,6 @@ footer p {
 .feature-title { font-size: 0.9rem; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
 .feature-desc { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.65; font-weight: 300; }
 
-/* Franja de estadisticas */
 .stats-strip {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1179,7 +1136,6 @@ footer p {
 
 .stats-strip-label { font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.09em; }
 
-/* Divisor de secciones */
 .section-label {
   font-family: var(--font-mono);
   font-size: 0.67rem;
@@ -1194,7 +1150,6 @@ footer p {
 
 .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
-/* Navegacion del landing */
 .landing-nav-full {
   display: flex;
   align-items: center;
@@ -1214,34 +1169,26 @@ footer p {
 
 .landing-nav-right { display: flex; align-items: center; gap: 8px; }
 
-/* Utilidades de revelado */
 .reveal { opacity: 0; transform: translateY(20px); transition: opacity 0.65s ease, transform 0.65s ease; }
 .reveal.visible { opacity: 1; transform: translateY(0); }
 .reveal-delay-1 { transition-delay: 0.08s; }
 .reveal-delay-2 { transition-delay: 0.16s; }
 .reveal-delay-3 { transition-delay: 0.24s; }
 
-/* Animaciones keyframe */
 @keyframes fadeUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-/* Varios */
 ul { list-style: none; }
 a  { color: inherit; text-decoration: none; }
 .js-plotly-plot .plotly { background: transparent !important; }
 
-/* ═══════════════════════════════════════════════════════════════
-   DISEÑO RESPONSIVE - OPTIMIZACIÓN MÓVIL
-   ═══════════════════════════════════════════════════════════════ */
-
-/* Tablets y pantallas pequeñas (768px o menos) */
 @media (max-width: 768px) {
-  /* Contenedor base */
+  
   .sim-container {
     padding: 20px 16px 40px 16px;
   }
 
-  /* Rejilla del tablero en una columna */
+  
   .sim-dashboard-grid {
     grid-template-columns: 1fr;
     gap: 20px;
@@ -1252,7 +1199,7 @@ a  { color: inherit; text-decoration: none; }
     grid-column: 1;
   }
 
-  /* Paneles para tablet */
+  
   .sim-panel {
     padding: 20px;
     border-radius: var(--radius-md);
@@ -1272,7 +1219,7 @@ a  { color: inherit; text-decoration: none; }
     align-self: flex-start;
   }
 
-  /* Rejilla de metricas en una columna */
+  
   .sim-metrics-grid {
     grid-template-columns: 1fr;
     gap: 12px;
@@ -1287,19 +1234,19 @@ a  { color: inherit; text-decoration: none; }
     font-size: 1.4rem;
   }
 
-  /* Fila de informacion en una columna */
+  
   .sim-info-row {
     grid-template-columns: 1fr;
     gap: 12px;
   }
 
-  /* Botones para tablet */
+  
   .btn-large {
     padding: 12px 16px;
     font-size: 0.9rem;
   }
 
-  /* Elementos de formulario */
+  
   .form-group {
     margin-bottom: 16px;
   }
@@ -1309,41 +1256,40 @@ a  { color: inherit; text-decoration: none; }
     font-size: 0.9rem;
   }
 
-  /* Tarjetas de resultados */
+  
   .sim-panel-row {
     grid-template-columns: 1fr;
     gap: 16px;
   }
 
-  /* Ocultar elementos decorativos */
+  
   .scenario-input-panel::before {
     display: none;
   }
 }
 
-/* Movil - Telefonos pequeños (480px o menos) */
 @media (max-width: 480px) {
   html {
     font-size: 12px;
   }
 
-  /* Prevencion de desbordamiento para pantallas diminutas */
+  
   * {
     max-width: 100%;
   }
 
-  /* Contenedor base movil */
+  
   .sim-container {
     padding: 16px 12px 32px 12px;
     min-height: 100vh;
   }
 
-  /* Rejilla del tablero movil */
+  
   .sim-dashboard-grid {
     gap: 16px;
   }
 
-  /* Paneles para movil */
+  
   .sim-panel {
     padding: 16px;
     border-radius: var(--radius-md);
@@ -1362,7 +1308,7 @@ a  { color: inherit; text-decoration: none; }
     font-size: 0.7rem;
   }
 
-  /* Metricas */
+  
   .sim-metrics-grid {
     grid-template-columns: 1fr;
     gap: 10px;
@@ -1392,7 +1338,7 @@ a  { color: inherit; text-decoration: none; }
     margin-top: 6px;
   }
 
-  /* Fila de informacion */
+  
   .sim-info-row {
     gap: 10px;
     padding-top: 12px;
@@ -1406,7 +1352,7 @@ a  { color: inherit; text-decoration: none; }
     font-size: 0.8rem;
   }
 
-  /* Botones moviles */
+  
   .btn {
     border-radius: var(--radius-md);
     font-weight: 500;
@@ -1424,7 +1370,7 @@ a  { color: inherit; text-decoration: none; }
     text-decoration: none;
   }
 
-  /* Formulario */
+  
   .form-group {
     margin-bottom: 14px;
   }
@@ -1448,12 +1394,12 @@ a  { color: inherit; text-decoration: none; }
     line-height: 1.5;
   }
 
-  /* Resultados */
+  
   .sim-panel-row {
     gap: 12px;
   }
 
-  /* Insignia */
+  
   .badge {
     padding: 8px 12px;
     font-size: 0.7rem;
@@ -1464,18 +1410,18 @@ a  { color: inherit; text-decoration: none; }
     height: 5px;
   }
 
-  /* Ocultar elementos decorativos en pantallas muy pequenas */
+  
   .scenario-input-panel::before {
     display: none !important;
   }
 
-  /* Evitar desbordamiento de texto */
+  
   body {
     overflow-x: hidden;
     word-wrap: break-word;
   }
 
-  /* Correcciones de desbordamiento para contenido generado */
+  
   .warning-box,
   .critical-box,
   .plan-item {
@@ -1503,7 +1449,7 @@ a  { color: inherit; text-decoration: none; }
     word-break: break-word;
   }
 
-  /* Evitar desbordamiento en contenedores flex */
+  
   .viability-header {
     max-width: 100%;
     flex-wrap: wrap;
@@ -1521,7 +1467,7 @@ a  { color: inherit; text-decoration: none; }
     font-size: 0.8rem;
   }
 
-  /* Seccion de resultados responsive */
+  
   .results-section {
     box-sizing: border-box;
     max-width: 100%;
@@ -1532,12 +1478,8 @@ a  { color: inherit; text-decoration: none; }
   }
 }
 
-/* ────────────────────────────────────────────────────────────────
-   MÓVIL - NAVEGACIÓN Y ESTILOS GLOBALES
-   ──────────────────────────────────────────────────────────────── */
-
 @media (max-width: 768px) {
-  /* Navegacion */
+  
   #navbar .container {
     padding: 0 12px;
   }
@@ -1571,12 +1513,12 @@ a  { color: inherit; text-decoration: none; }
     font-size: 0.7rem;
   }
 
-  /* Ajuste de padding del contenedor principal */
+  
   .main-content {
     padding-top: var(--nav-h);
   }
 
-  /* Asegurar que el contenido respete el viewport */
+  
   body {
     overflow-x: hidden;
     -webkit-user-select: none;
@@ -1590,7 +1532,7 @@ a  { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 480px) {
-  /* Navegacion responsive para pantallas muy pequenas */
+  
   #navbar {
     height: 56px;
   }
@@ -1623,11 +1565,6 @@ a  { color: inherit; text-decoration: none; }
   }
 }
 
-/* ────────────────────────────────────────────────────────────────
-   PREVENCIÓN UNIVERSAL DE DESBORDAMIENTO
-   ──────────────────────────────────────────────────────────────── */
-
-/* Prevenir scroll horizontal en cualquier dispositivo */
 html {
   overflow-x: hidden;
 }
@@ -1638,28 +1575,24 @@ body {
   overflow-wrap: break-word;
 }
 
-/* Asegurar que imagenes y contenido no rompan el layout */
 img, video {
   max-width: 100%;
   height: auto;
   display: block;
 }
 
-/* Asegurar que todos los contenedores sean responsive */
 .sim-container,
 .main-content,
 .container {
   max-width: 100%;
 }
 
-/* Corregir posibles problemas de desbordamiento con flex */
 [style*="display: flex"],
 [style*="display:flex"] {
   min-width: 0;
   flex-wrap: wrap;
 }
 
-/* Asegurar que los inputs no se desborden */
 input[type="text"],
 input[type="email"],
 input[type="password"],
@@ -1670,13 +1603,11 @@ select {
   box-sizing: border-box;
 }
 
-/* Corregir elementos inline que causan desbordamiento */
 span, a, label, .badge {
   word-break: break-word;
   word-wrap: break-word;
 }
 
-/* Estilos responsive para caja de viabilidad */
 .viability-content {
   border-radius: 12px;
   padding: 18px 16px;
@@ -1716,7 +1647,6 @@ span, a, label, .badge {
   margin: 0;
 }
 
-/* Estilos del mapa */
 .map-panel {
   min-height: 350px;
 }
@@ -1730,14 +1660,12 @@ span, a, label, .badge {
   border: 1px solid var(--border);
 }
 
-/* Icono del vehiculo policial en el mapa */
 .icono-vehiculo-policial,
 .icono-vehiculo-punto {
   background: transparent;
   border: none;
 }
 
-/* El marcador leaflet debe tener transicion suave para el movimiento */
 .leaflet-marker-icon {
   transition: transform 0.1s linear !important;
 }
@@ -1752,7 +1680,6 @@ span, a, label, .badge {
   filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
 }
 
-/* Nuevo punto azul para el vehiculo */
 .punto-vehiculo {
   position: absolute;
   top: 0;
@@ -1773,7 +1700,6 @@ span, a, label, .badge {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
-/* Escenario activo - rojo pulsante */
 .punto-interior.activo {
   background: #ef4444;
   animation: pulse-marker-danger 1s infinite;
@@ -1784,7 +1710,6 @@ span, a, label, .badge {
   50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
 }
 
-/* Ajustar popups de Leaflet al tema oscuro */
 .leaflet-popup-content-wrapper {
   background: var(--bg-card);
   color: var(--text-primary);
@@ -1800,7 +1725,6 @@ span, a, label, .badge {
   font-family: var(--font-sans);
 }
 
-/* Controles de zoom */
 .leaflet-control-zoom a {
   background: var(--bg-card) !important;
   color: var(--text-primary) !important;
@@ -1811,7 +1735,6 @@ span, a, label, .badge {
   background: var(--bg-elevated) !important;
 }
 
-/* ================= Aruba Dashboards ================= */
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
@@ -1963,7 +1886,6 @@ span, a, label, .badge {
   flex: 1;
 }
 
-/* Ciudadano */
 .citizen {
   max-width: 960px;
   margin: 40px auto;

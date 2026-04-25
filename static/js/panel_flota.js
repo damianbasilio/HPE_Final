@@ -1,12 +1,8 @@
-// Panel de flota compartido (operador y visualizador).
-// - Renderiza la flota completa sobre Leaflet centrado en Aruba.
-// - Ofrece API publica para seleccionar unidad y refrescar paneles laterales.
-// - Conecta a Socket.IO para recibir 'actualizacion_flotas' (5-10Hz).
+
 
 const ARUBA_CENTRO = [12.5211, -69.9683];
 const ARUBA_ZOOM = 12;
 
-// Iconos por tipo de unidad (texto, color, descripcion humana).
 const TIPO_META = {
   policia:          { letra: 'P', color: '#3b82f6', etiqueta: 'Policia' },
   ambulancia:       { letra: 'A', color: '#ef4444', etiqueta: 'Ambulancia' },
@@ -28,10 +24,10 @@ class PanelFlota {
     this.onSeleccion = onSeleccion;
     this.mapa = null;
     this.tilesLayer = null;
-    this.marcadores = new Map();          // vehiculo_id -> L.Marker
-    this.rutas = new Map();               // vehiculo_id -> L.Polyline (ruta destino)
-    this.rastros = new Map();             // vehiculo_id -> L.Polyline (rastro recorrido)
-    this.incidenteMarcadores = new Map(); // incident_id -> L.CircleMarker
+    this.marcadores = new Map();          
+    this.rutas = new Map();               
+    this.rastros = new Map();             
+    this.incidenteMarcadores = new Map(); 
     this.flota = [];
     this.incidentes = [];
     this.seleccionado = null;
@@ -223,7 +219,6 @@ class PanelFlota {
   }
 }
 
-// Helpers de UI compartidos.
 function fmtNum(v, dec = 1) {
   if (v == null || isNaN(v)) return '--';
   return Number(v).toFixed(dec);

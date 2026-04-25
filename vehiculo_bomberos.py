@@ -1,8 +1,4 @@
-# Unidad bomberos. Idiosincrasia operativa propia:
-#   - Cisterna de agua (litros) y deposito de espuma (litros).
-#   - Dotacion (4-6 efectivos) y rol (extincion / rescate / escala).
-#   - Estado de escala: desplegada o recogida (afecta tiempo de salida).
-#   - Tipo de incendio en curso (estructural | forestal | vehicular | derrame).
+
 
 import logging
 from vehiculo_base import VehiculoBase
@@ -12,11 +8,10 @@ logger = logging.getLogger(__name__)
 ROLES_BOMBEROS = ('extincion', 'rescate', 'escala', 'mixto')
 TIPOS_INCENDIO = ('estructural', 'forestal', 'vehicular', 'derrame', 'otro')
 
-
 class VehiculoBomberos(VehiculoBase):
     TIPO = 'bomberos'
     ESTADO_BASE = 'en_parque'
-    VELOCIDAD_CRUCERO = 0   # En el parque no se mueve
+    VELOCIDAD_CRUCERO = 0   
 
     AGUA_CAPACIDAD_L = 6000
     ESPUMA_CAPACIDAD_L = 400
@@ -30,7 +25,7 @@ class VehiculoBomberos(VehiculoBase):
         self.agua_litros = self.AGUA_CAPACIDAD_L
         self.espuma_litros = self.ESPUMA_CAPACIDAD_L
 
-        self.caudal_agua_lpm = 0.0       # Litros por minuto descargados
+        self.caudal_agua_lpm = 0.0       
         self.caudal_espuma_lpm = 0.0
         self.escala_desplegada = False
         self.tipo_incendio = None
@@ -50,17 +45,14 @@ class VehiculoBomberos(VehiculoBase):
         else:
             self.tipo_incendio = 'otro'
 
-        # Caudal estimado en funcion de la intensidad.
         base_agua = {'estructural': 800, 'forestal': 1200, 'vehicular': 400, 'derrame': 200, 'otro': 600}
         self.caudal_agua_lpm = base_agua.get(self.tipo_incendio, 600) * (0.4 + float(intensidad or 0))
 
-        # Espuma solo en derrames y vehiculares fuertes.
         if self.tipo_incendio in ('derrame', 'vehicular') and intensidad >= 0.5:
             self.caudal_espuma_lpm = 80 * float(intensidad or 0)
         else:
             self.caudal_espuma_lpm = 0.0
 
-        # Escala: si la IA lo dice, o por defecto en estructurales con intensidad alta.
         escala_ia = modificadores.get('requiere_escala')
         if escala_ia is not None:
             self.escala_desplegada = bool(escala_ia)
@@ -72,7 +64,7 @@ class VehiculoBomberos(VehiculoBase):
             self.efectivos_operativos = max(1, min(self.dotacion, int(efectivos)))
 
     def actualizar_logica_especializada(self, delta_time):
-        # Solo se consume agua/espuma cuando estamos en escena trabajando.
+
         if not self.en_escena:
             return
 
@@ -82,14 +74,13 @@ class VehiculoBomberos(VehiculoBase):
         self.agua_litros = max(0.0, self.agua_litros - litros_agua)
         self.espuma_litros = max(0.0, self.espuma_litros - litros_espuma)
 
-        # Si se queda sin agua, baja el caudal a cero (logico).
         if self.agua_litros <= 0:
             self.caudal_agua_lpm = 0.0
         if self.espuma_litros <= 0:
             self.caudal_espuma_lpm = 0.0
 
     def finalizar_intervencion(self):
-        # Tras volver al parque, se recargan tanques y se recoge la escala.
+
         if self.tipo_incendio:
             logger.info(f"[Bomberos {self.id[:8]}] Recargando tras incendio {self.tipo_incendio}")
         self.tipo_incendio = None

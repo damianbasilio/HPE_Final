@@ -1,6 +1,4 @@
-// Panel del Visualizador (solo lectura).
-// Misma vista de flota que el operador, pero sin acciones de control.
-// Anade panel de replay historico (gestion de simulaciones).
+
 
 document.addEventListener('DOMContentLoaded', () => {
   const panel = new window.PanelFlota({
@@ -38,7 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
     mostrarFlash(`[${data.remitente}] ${data.mensaje}`, 'info', 6000);
   });
 
-  // ---------------- Rendering ----------------
+  
 
   function actualizarConexion(ok) {
     const dot = document.getElementById('ws-status-dot');
@@ -152,7 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
   }
 
-  // ---------------- Replay historico ----------------
+  
 
   const formReplay = document.getElementById('replay-form');
   if (formReplay) {
@@ -237,7 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
   }
 
-  // ---------------- Chat ----------------
+  
 
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
@@ -269,7 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ---------------- Helpers ----------------
+  
 
   function setText(id, valor) {
     const el = document.getElementById(id);

@@ -33,10 +33,6 @@ from kafka_bus import KafkaBus
 from socketio_server import inicializar_socketio
 from simulaciones import GestorSimulaciones
 
-# ----------------------------------------------------------------------
-# Logging y configuracion Flask
-# ----------------------------------------------------------------------
-
 nivel_log = logging.DEBUG if os.getenv('FLASK_DEBUG', 'false').lower() == 'true' else logging.INFO
 logging.basicConfig(
     level=nivel_log,
@@ -54,7 +50,6 @@ app.config['PERMANENT_SESSION_LIFETIME'] = TIEMPO_SESION
 app.config['SESSION_COOKIE_HTTPONLY'] = COOKIE_HTTPONLY
 app.config['SESSION_COOKIE_SAMESITE'] = COOKIE_SAMESITE
 Session(app)
-
 
 @app.after_request
 def comprimir_respuesta(respuesta):
@@ -81,11 +76,6 @@ def comprimir_respuesta(respuesta):
 
     return respuesta
 
-
-# ----------------------------------------------------------------------
-# Bootstrap de servicios singleton
-# ----------------------------------------------------------------------
-
 fleet = FleetManager()
 inventario = InventarioAruba()
 bus = KafkaBus()
@@ -94,16 +84,13 @@ configurar_bus(bus)
 socketio = inicializar_socketio(app, fleet)
 gestor_simulaciones = GestorSimulaciones(fleet, bus)
 
-
 def obtener_factor_entorno() -> float:
     contexto = obtener_contexto_entorno_completo() or {}
     clima = contexto.get('clima', {}) or {}
     return float(clima.get('condicion', {}).get('factor_velocidad', 1.0) or 1.0)
 
-
 def bucle_flotas():
     fleet.loop_actualizacion(obtener_factor_entorno)
-
 
 def bucle_telemetria():
     while True:
@@ -116,11 +103,10 @@ def bucle_telemetria():
             logger.warning("Telemetria fallo: %s", exc)
             time.sleep(2)
 
-
 def construir_telemetria(veh) -> dict:
     estado = veh.obtener_estado()
     gps = estado.get('gps') or {}
-    incidente = fleet._incidente_actual(veh.id)  # noqa: SLF001
+    incidente = fleet._incidente_actual(veh.id)  
     costes = estado.get('costes') or {}
 
     payload = {
@@ -167,16 +153,10 @@ def construir_telemetria(veh) -> dict:
     }
     return payload
 
-
 bus.iniciar(on_event=fleet.manejar_evento)
 
 threading.Thread(target=bucle_flotas, daemon=True).start()
 threading.Thread(target=bucle_telemetria, daemon=True).start()
-
-
-# ----------------------------------------------------------------------
-# Autenticacion
-# ----------------------------------------------------------------------
 
 @app.before_request
 def proteger_vistas():
@@ -192,11 +172,9 @@ def proteger_vistas():
     if not session.get('autenticado'):
         return redirect(url_for('login'))
 
-
 @app.route('/')
 def index():
     return render_template('landing.html')
-
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -227,33 +205,24 @@ def login():
 
     return render_template('login.html')
 
-
 @app.route('/logout')
 def logout():
     cerrar_sesion()
     return redirect(url_for('login'))
-
 
 @app.route('/operador')
 def operador():
     usuario = obtener_usuario_actual()
     return render_template('simulador.html', usuario=usuario)
 
-
 @app.route('/visualizador')
 def visualizador():
     usuario = obtener_usuario_actual()
     return render_template('comando.html', usuario=usuario)
 
-
 @app.route('/ciudadano')
 def ciudadano():
     return render_template('ciudadano.html')
-
-
-# ----------------------------------------------------------------------
-# Health & OpenAPI
-# ----------------------------------------------------------------------
 
 @app.route('/health')
 def health():
@@ -265,7 +234,6 @@ def health():
         "active_simulations": len(gestor_simulaciones.listar()),
     })
 
-
 @app.route('/openapi.yaml')
 def openapi():
     ruta = os.path.join(os.path.dirname(__file__), 'apis', 'team-api.yaml')
@@ -274,11 +242,6 @@ def openapi():
     with open(ruta, 'r', encoding='utf-8') as f:
         contenido = f.read()
     return Response(contenido, mimetype='application/yaml')
-
-
-# ----------------------------------------------------------------------
-# Vehiculos / Flota
-# ----------------------------------------------------------------------
 
 @app.route('/vehicles/status')
 def vehicles_status():
@@ -299,7 +262,6 @@ def vehicles_status():
         "vehiculos": vehiculos,
     })
 
-
 @app.route('/vehicles')
 def list_vehicles():
     tipo = request.args.get('type')
@@ -308,7 +270,6 @@ def list_vehicles():
         vehiculos = [v for v in vehiculos if v.get('tipo') == tipo]
     return jsonify({"vehicles": vehiculos, "total": len(vehiculos)})
 
-
 @app.route('/vehicles/<vehicle_id>')
 def get_vehicle(vehicle_id):
     veh = fleet.obtener_vehiculo(vehicle_id)
@@ -316,13 +277,8 @@ def get_vehicle(vehicle_id):
         return jsonify({"error": "Vehiculo no encontrado"}), 404
     estado = veh.obtener_estado()
     estado['nombre'] = veh.metadatos.get('nombre', veh.id)
-    estado['incidente'] = fleet._incidente_actual(veh.id)  # noqa: SLF001
+    estado['incidente'] = fleet._incidente_actual(veh.id)  
     return jsonify(estado)
-
-
-# ----------------------------------------------------------------------
-# Incidentes
-# ----------------------------------------------------------------------
 
 @app.route('/incidents')
 def list_incidents():
@@ -332,15 +288,9 @@ def list_incidents():
         incidentes = [i for i in incidentes if i.get('status') == estado]
     return jsonify({"total": len(incidentes), "incidents": incidentes})
 
-
-# ----------------------------------------------------------------------
-# Simulaciones
-# ----------------------------------------------------------------------
-
 @app.route('/simulations')
 def list_simulations():
     return jsonify({"simulations": gestor_simulaciones.listar()})
-
 
 @app.route('/simulations/replay', methods=['POST'])
 def sim_replay():
@@ -357,7 +307,6 @@ def sim_replay():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-
 @app.route('/simulations/<sim_id>/state')
 def sim_state(sim_id):
     sim = gestor_simulaciones.estado(sim_id)
@@ -365,14 +314,12 @@ def sim_state(sim_id):
         return jsonify({"error": "Simulacion no encontrada"}), 404
     return jsonify(sim)
 
-
 @app.route('/simulations/<sim_id>/pause', methods=['POST'])
 def sim_pause(sim_id):
     sim = gestor_simulaciones.alternar_pausa(sim_id)
     if not sim:
         return jsonify({"error": "Simulacion no encontrada"}), 404
     return jsonify(sim)
-
 
 @app.route('/simulations/<sim_id>/speed', methods=['POST'])
 def sim_speed(sim_id):
@@ -384,16 +331,10 @@ def sim_speed(sim_id):
         return jsonify({"error": "Simulacion no encontrada"}), 404
     return jsonify(sim)
 
-
-# ----------------------------------------------------------------------
-# Clima e Inventario
-# ----------------------------------------------------------------------
-
 @app.route('/weather-stations')
 def weather_stations():
     estaciones = inventario.obtener_estaciones()
     return jsonify({"stations": estaciones, "total": len(estaciones)})
-
 
 @app.route('/weather-stations/<station_id>/reading')
 def weather_reading(station_id):
@@ -401,11 +342,6 @@ def weather_reading(station_id):
     if not lectura:
         return jsonify({"error": "Sin lectura disponible"}), 404
     return jsonify(lectura)
-
-
-# ----------------------------------------------------------------------
-# Chatbot NLP
-# ----------------------------------------------------------------------
 
 @app.route('/ask')
 def ask_fleet():
@@ -423,11 +359,9 @@ def ask_fleet():
         logger.error("Chat error: %s", exc)
         return jsonify({"error": "Error en el asistente"}), 500
 
-
 @app.route('/api/context')
 def api_contexto():
     return jsonify(construir_contexto_chat())
-
 
 def construir_contexto_chat() -> dict:
     contexto_entorno = obtener_contexto_entorno_completo() or {}
@@ -450,11 +384,6 @@ def construir_contexto_chat() -> dict:
         "incidentes_activos": [i for i in fleet.listado_incidentes()
                                 if i.get('status') in ('en_route', 'on_scene', 'assigned')],
     }
-
-
-# ----------------------------------------------------------------------
-# Entrypoint
-# ----------------------------------------------------------------------
 
 if __name__ == '__main__':
     socketio.run(app, debug=DEPURACION_FLASK, host=HOST_SERVIDOR, port=PUERTO_SERVIDOR,

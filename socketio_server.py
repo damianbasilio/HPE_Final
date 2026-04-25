@@ -1,9 +1,4 @@
-# Capa Socket.IO del Gemelo Digital de Aruba.
-#
-# - Operadores y visualizadores comparten el mismo broadcast: ambos ven la flota
-#   completa en tiempo real (la diferencia es de UI/permisos, no de payload).
-# - El operador puede pedir control_incidente (asignar / cerrar / scout / mensaje).
-# - El visualizador es solo de lectura.
+
 
 from datetime import datetime
 import logging
@@ -17,7 +12,7 @@ from config import INTERVALO_ACTUALIZACION
 
 logger = logging.getLogger(__name__)
 
-socketio: "SocketIO" = None  # type: ignore[assignment]
+socketio: "SocketIO" = None  
 
 conexiones = {}
 lock_conexiones = threading.Lock()
@@ -25,7 +20,6 @@ lock_conexiones = threading.Lock()
 SALA_OPERADORES = "operadores"
 SALA_VISUALIZADORES = "visualizadores"
 SALA_TODOS = "flota"
-
 
 def inicializar_socketio(app, fleet):
     global socketio
@@ -47,7 +41,6 @@ def inicializar_socketio(app, fleet):
     ).start()
 
     return socketio
-
 
 def registrar_manejadores(fleet):
 
@@ -90,7 +83,7 @@ def registrar_manejadores(fleet):
 
     @socketio.on('control_incidente')
     def control_incidente(data):
-        # Solo los operadores pueden manipular la flota.
+
         from flask import session
         rol = session.get('rol') or session.get('usuario_rol')
         if rol != 'operador':
@@ -152,7 +145,6 @@ def registrar_manejadores(fleet):
         else:
             emit('control_resultado', {"accion": accion, "ok": False, "error": "Accion desconocida"})
 
-
 def _mapear_tipo_apoyo(tipo: str) -> str:
     mapa = {
         "bomberos": "fire",
@@ -162,7 +154,6 @@ def _mapear_tipo_apoyo(tipo: str) -> str:
         "dron": "marine_rescue"
     }
     return mapa.get(tipo, "accident")
-
 
 def bucle_difusion(fleet):
     while True:

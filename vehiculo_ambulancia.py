@@ -1,8 +1,4 @@
-# Unidad ambulancia. Idiosincrasia operativa propia:
-#   - Nivel de soporte (BLS basico / ALS avanzado).
-#   - Estado del paciente con signos vitales (FC, SpO2, TA, evolucion).
-#   - Reservas de oxigeno (litros) que se consumen en intervenciones.
-#   - No patrulla por defecto: espera en hospital base.
+
 
 import random
 import logging
@@ -13,13 +9,11 @@ logger = logging.getLogger(__name__)
 NIVELES_SOPORTE = ('BLS', 'ALS')
 EVOLUCIONES = ('estable', 'mejora', 'deterioro_leve', 'deterioro_grave', 'critico')
 
-
 class Ambulancia(VehiculoBase):
     TIPO = 'ambulancia'
     ESTADO_BASE = 'en_base'
-    VELOCIDAD_CRUCERO = 0   # En base no se mueve hasta recibir aviso
+    VELOCIDAD_CRUCERO = 0   
 
-    # Capacidad de la botella de oxigeno (litros)
     OXIGENO_CAPACIDAD_L = 2000
 
     def __init__(self, id_vehiculo, propulsion='combustion', metadatos=None):
@@ -36,7 +30,7 @@ class Ambulancia(VehiculoBase):
         self.tiempo_atencion_s = 0.0
 
     def _iniciar_ruta_patrulla(self):
-        # Las ambulancias no patrullan: se quedan en el hospital base esperando.
+
         self.escenario_activo = self.ESTADO_BASE
         self.en_movimiento = False
         self.velocidad_objetivo = 0
@@ -56,7 +50,7 @@ class Ambulancia(VehiculoBase):
             except (TypeError, ValueError):
                 pass
         else:
-            # Si no viene, lo inferimos de la intensidad y del soporte clinico.
+
             base = 8.0 if self.nivel_soporte == 'ALS' else 4.0
             self.consumo_oxigeno_lpm = base * (0.5 + float(intensidad or 0))
 
@@ -81,7 +75,7 @@ class Ambulancia(VehiculoBase):
         }
 
     def _signos_vitales_iniciales(self, clinico):
-        # Si la IA mando signos los aceptamos; si no, simulamos un set realista.
+
         signos = clinico.get('signos_vitales') if isinstance(clinico, dict) else None
         if isinstance(signos, dict):
             return signos
@@ -99,13 +93,11 @@ class Ambulancia(VehiculoBase):
         if not self.paciente_a_bordo or not self.paciente:
             return
 
-        # Consumo de oxigeno en litros.
         litros = (self.consumo_oxigeno_lpm / 60.0) * delta_time
         self.oxigeno_litros = max(0.0, self.oxigeno_litros - litros)
 
         self.tiempo_atencion_s += delta_time
 
-        # Evolucion ligera de los signos vitales segun la 'evolucion' prevista.
         evol = self.paciente.get('evolucion', 'estable')
         sv = self.paciente.get('signos_vitales', {})
         if not isinstance(sv, dict):
@@ -121,12 +113,12 @@ class Ambulancia(VehiculoBase):
             sv['fc'] = min(200, sv.get('fc', 80) + 0.07 * delta_time)
             sv['spo2'] = max(60, sv.get('spo2', 95) - 0.04 * delta_time)
             sv['ta_sist'] = max(50, sv.get('ta_sist', 120) - 0.05 * delta_time)
-        else:  # estable
+        else:  
             sv['fc'] = sv.get('fc', 80) + random.uniform(-0.05, 0.05)
             sv['spo2'] = sv.get('spo2', 95) + random.uniform(-0.02, 0.02)
 
     def finalizar_intervencion(self):
-        # Paciente entregado en hospital. Reseteamos.
+
         if self.paciente_a_bordo:
             logger.info(f"[Ambulancia {self.id[:8]}] Paciente entregado tras {self.tiempo_atencion_s:.0f}s")
         self.paciente_a_bordo = False

@@ -1,6 +1,4 @@
-// Panel del Operador.
-// Recibe `actualizacion_flotas` por Socket.IO, renderiza la flota completa
-// en Leaflet (Aruba) y permite asignar / cerrar incidentes manualmente.
+
 
 document.addEventListener('DOMContentLoaded', () => {
   const panel = new window.PanelFlota({
@@ -44,7 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
     mostrarFlash(`[${data.remitente}] ${data.mensaje}`, 'info', 6000);
   });
 
-  // ---------------- Renderizado ----------------
+  
 
   function actualizarConexion(ok) {
     const dot = document.getElementById('ws-status-dot');
@@ -191,7 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ---------------- Acciones globales ----------------
+  
 
   document.querySelectorAll('[data-apoyo]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -214,7 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ---------------- Chat ----------------
+  
 
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
@@ -246,7 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ---------------- Helpers ----------------
+  
 
   function setText(id, valor) {
     const el = document.getElementById(id);

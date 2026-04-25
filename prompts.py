@@ -15,7 +15,6 @@ PREGUNTA:
 {pregunta}
 """
 
-
 def formatear_prompt_chat(rol: str, pregunta: str, contexto: dict) -> str:
     return PROMPT_CHATBOT.format(
         rol=rol,

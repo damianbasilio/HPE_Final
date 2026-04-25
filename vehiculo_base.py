@@ -1,13 +1,4 @@
-# Clase base de la que heredan todas las unidades del Gemelo Digital de Aruba.
-# Contiene la fisica de la flota: telemetria, GPS, fases de escenario, perfiles
-# de velocidad y el sistema de calculo de costes operativos.
-#
-# Las subclases (Policia, Ambulancia, Bomberos, Proteccion Civil, Dron) anaden
-# estado especializado y, opcionalmente, sobreescriben los metodos:
-#   - obtener_tipo()                      identificador corto del tipo
-#   - obtener_estado_especializado()      payload extra para el dashboard
-#   - aplicar_modificadores_especificos() ajustes propios al iniciar escenario
-#   - finalizar_intervencion()            cierre limpio (devolver paciente, etc.)
+
 
 import random
 import math
@@ -25,16 +16,12 @@ from config import (
 from gps import SimuladorGPS
 from rutas import generar_ruta_patrulla
 
-
 class VehiculoBase:
-    # Tipo nominal: las subclases lo redefinen ('policia', 'ambulancia', ...)
+
     TIPO = 'generico'
 
-    # Si la subclase no quiere patrullar (p.ej. ambulancia espera en hospital,
-    # bomberos espera en parque), debe poner ESTADO_BASE = 'en_base'.
     ESTADO_BASE = 'patrulla'
 
-    # Las subclases pueden ajustar la velocidad de crucero base.
     VELOCIDAD_CRUCERO = VELOCIDAD_PATRULLA
 
     def __init__(self, id_vehiculo, propulsion='combustion', metadatos=None):
@@ -56,10 +43,6 @@ class VehiculoBase:
 
         self._iniciar_ruta_patrulla()
 
-    # ------------------------------------------------------------------
-    # Inicializacion
-    # ------------------------------------------------------------------
-
     def _init_telemetria(self):
         self.combustible = random.uniform(*RANGO_COMBUSTIBLE_INICIAL)
         self.km_totales = random.randint(*RANGO_KM_INICIAL)
@@ -78,8 +61,7 @@ class VehiculoBase:
         self.en_movimiento = True
         self.rastro = []
         self.version_ruta = 0
-        # Multiplicador externo (clima/eventos) inyectado por el FleetManager.
-        # 1.0 = condiciones nominales, <1.0 = velocidad reducida, >1.0 = ideal.
+
         self.factor_entorno = 1.0
 
     def _init_escenario(self):
@@ -101,18 +83,17 @@ class VehiculoBase:
         self.perfil_velocidad = None
 
     def _init_costes(self):
-        # Coste acumulado total (todas las intervenciones del turno)
+
         self.coste_total_eur = 0.0
-        # Coste de la intervencion en curso (incluye activacion + tiempo)
+
         self.coste_intervencion_eur = 0.0
-        # Numero de intervenciones realizadas
+
         self.intervenciones_realizadas = 0
-        # Tiempo (segundos) facturado en la intervencion actual
+
         self._segundos_facturados = 0.0
 
     def _iniciar_ruta_patrulla(self):
-        # En las unidades que no patrullan (ambulancia/bomberos en base), la
-        # subclase puede sobreescribir este metodo para dejar la unidad parada.
+
         try:
             ruta = generar_ruta_patrulla()
             if ruta and len(ruta) >= 2:
@@ -120,10 +101,6 @@ class VehiculoBase:
                 self.version_ruta += 1
         except Exception as e:
             logger.warning(f"Error generando ruta patrulla inicial: {e}")
-
-    # ------------------------------------------------------------------
-    # Loop principal
-    # ------------------------------------------------------------------
 
     def actualizar_simulacion(self, delta_time=1):
         self._actualizar_tiempo(delta_time)
@@ -151,13 +128,8 @@ class VehiculoBase:
 
         self.actualizar_logica_especializada(delta_time)
 
-    # ------------------------------------------------------------------
-    # Costes operativos (€/min + activacion)
-    # ------------------------------------------------------------------
-
     def _acumular_costes(self, delta_time):
-        # Solo se factura cuando la unidad esta atendiendo una intervencion.
-        # En patrulla / en base no se acumula coste por minuto.
+
         if self._esta_en_intervencion():
             self._segundos_facturados += delta_time
             coste_tiempo = (self._segundos_facturados / 60.0) * self.coste_min
@@ -174,35 +146,24 @@ class VehiculoBase:
         self.coste_intervencion_eur = 0.0
         self._segundos_facturados = 0.0
 
-    # ------------------------------------------------------------------
-    # Hooks que las subclases pueden sobreescribir
-    # ------------------------------------------------------------------
-
     def obtener_tipo(self):
         return self.TIPO
 
     def obtener_estado_especializado(self):
-        # Devuelve un dict con los campos propios del tipo de vehiculo.
-        # Las subclases lo extienden (paciente, agua_l, riesgo_dinamico, ...).
+
         return {}
 
     def aplicar_modificadores_especificos(self, tipo_escenario, modificadores, intensidad):
-        # Hook llamado tras aplicar los modificadores genericos. Las subclases
-        # pueden ajustar estado especializado a partir del JSON de la IA.
+
         pass
 
     def actualizar_logica_especializada(self, delta_time):
-        # Hook llamado cada tick. Subclases lo usan para evolucion del paciente,
-        # consumo de agua de bomberos, descarga de bateria del dron, etc.
+
         pass
 
     def finalizar_intervencion(self):
-        # Hook al cerrar un escenario (consolidar paciente entregado, etc).
-        pass
 
-    # ------------------------------------------------------------------
-    # Resto de la fisica generica (sin cambios respecto al diseno original)
-    # ------------------------------------------------------------------
+        pass
 
     def _acumular_rastro(self):
         if self.velocidad <= 0:
@@ -331,8 +292,6 @@ class VehiculoBase:
             jitter = random.uniform(-var * 5.0, var * 5.0)
             objetivo = max(0, objetivo + jitter)
 
-        # Aplicamos el factor de entorno al final para que el clima/eventos
-        # afecten a la velocidad real de la unidad de forma proporcional.
         factor = max(0.2, min(1.5, float(getattr(self, 'factor_entorno', 1.0) or 1.0)))
         objetivo = objetivo * factor
 
@@ -393,7 +352,7 @@ class VehiculoBase:
 
     def _actualizar_consumo(self, delta_time):
         if self.velocidad > 0:
-            # Los electricos consumen un ~30% menos por km a misma velocidad.
+
             factor_propulsion = 0.7 if self.propulsion == 'electrico' else 1.0
             consumo = (self.velocidad / 100.0) * 0.01 * self.consumo_factor * factor_propulsion * delta_time
             self.combustible = max(0, self.combustible - consumo)
@@ -453,8 +412,7 @@ class VehiculoBase:
     def aplicar_escenario(self, tipo_escenario, duracion_minutos=30, intensidad=0.5,
                           velocidad_objetivo=None, nombre_personalizado=None, modificadores=None,
                           ruta=None, **kwargs):
-        # Si habia una intervencion previa abierta, consolidamos su coste antes
-        # de empezar la nueva (asi se contabiliza una activacion por escenario).
+
         if self._esta_en_intervencion():
             self._consolidar_coste_intervencion()
             self.finalizar_intervencion()
@@ -583,10 +541,6 @@ class VehiculoBase:
 
         self.en_camino = True
         self.en_escena = False
-
-    # ------------------------------------------------------------------
-    # Snapshots de estado para el dashboard / WebSocket / IA
-    # ------------------------------------------------------------------
 
     def _payload_costes(self):
         return {

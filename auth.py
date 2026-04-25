@@ -1,4 +1,4 @@
-# Sistema de autenticacion
+
 
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
@@ -7,7 +7,6 @@ import os
 import json
 
 ARCHIVO_USUARIOS = os.path.join(os.path.dirname(__file__), 'users.json')
-
 
 def cargar_usuarios():
     if not os.path.exists(ARCHIVO_USUARIOS):
@@ -35,9 +34,7 @@ def cargar_usuarios():
 
     return usuarios
 
-
 USUARIOS = cargar_usuarios()
-
 
 def autenticar_usuario(usuario, contrasena):
     if usuario not in USUARIOS:
@@ -53,17 +50,14 @@ def autenticar_usuario(usuario, contrasena):
         'nombre': datos_usr['nombre']
     }
 
-
 def registrar_sesion(datos_usuario):
     session['usuario_id'] = datos_usuario['usuario']
     session['usuario_nombre'] = datos_usuario['nombre']
     session['usuario_rol'] = datos_usuario['rol']
     session['autenticado'] = True
 
-
 def cerrar_sesion():
     session.clear()
-
 
 def requerir_login(f):
     @wraps(f)
@@ -74,7 +68,6 @@ def requerir_login(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return funcion_protegida
-
 
 def obtener_usuario_actual():
     if session.get('autenticado'):

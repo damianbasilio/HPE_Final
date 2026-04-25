@@ -19,9 +19,8 @@ _grafo_cache = {
     "timestamp": 0.0
 }
 
-
 def _haversine(punto1: Tuple[float, float], punto2: Tuple[float, float]) -> float:
-    # Distancia en km entre dos coordenadas
+
     lat1, lon1 = math.radians(punto1[0]), math.radians(punto1[1])
     lat2, lon2 = math.radians(punto2[0]), math.radians(punto2[1])
 
@@ -32,10 +31,8 @@ def _haversine(punto1: Tuple[float, float], punto2: Tuple[float, float]) -> floa
     c = 2 * math.asin(math.sqrt(a))
     return 6371 * c
 
-
 def _coord_key(lat: float, lon: float) -> Tuple[float, float]:
     return (round(lat, 6), round(lon, 6))
-
 
 def _construir_grafo(roads: List[dict]) -> Tuple[Dict[Tuple[float, float], Tuple[float, float]], Dict]:
     nodos: Dict[Tuple[float, float], Tuple[float, float]] = {}
@@ -62,7 +59,6 @@ def _construir_grafo(roads: List[dict]) -> Tuple[Dict[Tuple[float, float], Tuple
 
     return nodos, adyacencia
 
-
 def _obtener_grafo() -> Tuple[Dict, Dict]:
     with _grafo_lock:
         if _grafo_cache["nodos"] and _grafo_cache["adyacencia"]:
@@ -76,7 +72,6 @@ def _obtener_grafo() -> Tuple[Dict, Dict]:
         _grafo_cache["adyacencia"] = adyacencia
 
     return nodos, adyacencia
-
 
 def _buscar_nodo_cercano(punto: Tuple[float, float], nodos: Dict) -> Optional[Tuple[float, float]]:
     if not nodos:
@@ -92,7 +87,6 @@ def _buscar_nodo_cercano(punto: Tuple[float, float], nodos: Dict) -> Optional[Tu
             mejor = nodo
 
     return mejor
-
 
 def _dijkstra(adyacencia: Dict, origen: Tuple[float, float], destino: Tuple[float, float]) -> List[Tuple[float, float]]:
     distancias = {origen: 0.0}
@@ -122,7 +116,6 @@ def _dijkstra(adyacencia: Dict, origen: Tuple[float, float], destino: Tuple[floa
     ruta.reverse()
     return ruta
 
-
 def generar_ruta(origen: Tuple[float, float], destino: Tuple[float, float]) -> List[List[float]]:
     nodos, adyacencia = _obtener_grafo()
     if not nodos:
@@ -141,7 +134,6 @@ def generar_ruta(origen: Tuple[float, float], destino: Tuple[float, float]) -> L
     puntos.extend([[p[0], p[1]] for p in ruta])
     puntos.append(list(destino))
     return puntos
-
 
 def generar_ruta_patrulla(origen: Optional[Tuple[float, float]] = None) -> List[List[float]]:
     lat_min, lat_max, lon_min, lon_max = ARUBA_BOUNDS
@@ -167,7 +159,6 @@ def generar_ruta_patrulla(origen: Optional[Tuple[float, float]] = None) -> List[
             actual = destino
 
     return ruta_total
-
 
 def obtener_distancia_total_ruta(ruta: List[List[float]]) -> float:
     if not ruta or len(ruta) < 2:

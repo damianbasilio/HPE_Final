@@ -1,9 +1,7 @@
-# Funciones de utilidad para el simulador
 
 
 def limitar(valor, minimo, maximo):
     return max(minimo, min(maximo, valor))
-
 
 def a_decimal(valor, defecto=0.0):
     if valor is None:
@@ -13,7 +11,6 @@ def a_decimal(valor, defecto=0.0):
     except (ValueError, TypeError):
         return defecto
 
-
 def a_entero(valor, defecto=0):
     if valor is None:
         return defecto
@@ -22,9 +19,8 @@ def a_entero(valor, defecto=0):
     except (ValueError, TypeError):
         return defecto
 
-
 def extraer_json(texto):
-    # Quita los bloques markdown de la respuesta
+
     if "```json" in texto:
         texto = texto.split("```json")[1].split("```")[0]
     elif "```" in texto:

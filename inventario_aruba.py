@@ -9,7 +9,6 @@ from config import API_INVENTARIO_URL, CACHE_ENTORNO
 
 logger = logging.getLogger(__name__)
 
-
 class InventarioAruba:
     def __init__(self, base_url: str = API_INVENTARIO_URL, cache_ttl: int = CACHE_ENTORNO):
         self.base_url = base_url.rstrip("/")

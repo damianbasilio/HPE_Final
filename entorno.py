@@ -10,11 +10,9 @@ _bus = None
 _ultimo_contexto = None
 _ultimo_ts = 0.0
 
-
 def configurar_bus(kafka_bus) -> None:
     global _bus
     _bus = kafka_bus
-
 
 def _interpretar_clima(lectura: dict) -> dict:
     temp = lectura.get("temperature_c")
@@ -67,7 +65,6 @@ def _interpretar_clima(lectura: dict) -> dict:
         },
         "ultima_actualizacion": lectura.get("timestamp") or datetime.now().isoformat()
     }
-
 
 def obtener_contexto_entorno_completo() -> Optional[dict]:
     global _ultimo_contexto, _ultimo_ts

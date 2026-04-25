@@ -7,7 +7,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Dependencias del sistema (gevent compila C en algunas plataformas).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential gcc curl \
     && rm -rf /var/lib/apt/lists/*

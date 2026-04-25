@@ -11,6 +11,10 @@ PUERTO_SERVIDOR = int(os.getenv('PUERTO_SERVIDOR', 8080))
 API_INVENTARIO_URL = os.getenv('ARUBA_INVENTORY_API', 'http://10.10.48.30:8080')
 API_EQUIPO_URL = os.getenv('ARUBA_TEAM_API', 'http://10.10.48.21:8080')
 
+OSRM_URL = os.getenv('OSRM_URL', 'https://router.project-osrm.org')
+OSRM_PROFILE = os.getenv('OSRM_PROFILE', 'driving')
+OSRM_TIMEOUT = float(os.getenv('OSRM_TIMEOUT', 6))
+
 TEAM_ID = os.getenv('TEAM_ID', '52sec')
 
 LLM_BASE_URL = os.getenv('LLM_BASE_URL', 'http://10.10.48.10:8001/v1')

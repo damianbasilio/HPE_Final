@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 
 from config import ARUBA_BOUNDS, ARUBA_LANDMARKS, CENTRO_ARUBA
 from inventario_aruba import InventarioAruba
+from osrm_client import osrm_disponible, osrm_route
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,11 @@ def _dijkstra(adyacencia: Dict, origen: Tuple[float, float], destino: Tuple[floa
     return ruta
 
 def generar_ruta(origen: Tuple[float, float], destino: Tuple[float, float]) -> List[List[float]]:
+    if osrm_disponible():
+        ruta_osrm = osrm_route(origen, destino)
+        if ruta_osrm and len(ruta_osrm) >= 2:
+            return ruta_osrm
+
     nodos, adyacencia = _obtener_grafo()
     if not nodos:
         return [list(origen), list(destino)]

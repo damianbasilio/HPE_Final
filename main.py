@@ -176,7 +176,8 @@ threading.Thread(target=bucle_telemetria, daemon=True).start()
 @app.before_request
 def proteger_vistas():
     public_endpoints = {
-        'health', 'health_kafka', 'health_kafka_probe', 'health_inventory', 'health_fleet',
+        'health', 'health_kafka', 'health_kafka_probe', 'health_inventory',
+        'health_fleet', 'health_osrm',
         'openapi', 'vehicles_status', 'list_vehicles', 'get_vehicle',
         'list_incidents', 'list_simulations', 'sim_replay', 'sim_state', 'sim_pause',
         'sim_speed', 'ask_fleet', 'weather_stations', 'weather_reading', 'index',
@@ -264,6 +265,32 @@ def health_kafka():
         "ultimo_weather": weather_cache[-1] if weather_cache else None,
         "ultimos_eventos": events_cache[-5:] if events_cache else [],
         "stations_distintas": len(getattr(bus, '_weather_by_station', {}) or {}),
+    })
+
+@app.route('/health/osrm')
+def health_osrm():
+    from config import ARUBA_LANDMARKS as _LM, OSRM_PROFILE as _PROF, OSRM_URL as _URL
+    from osrm_client import osrm_disponible as _disp, osrm_route as _route
+    if len(_LM) < 2:
+        return jsonify({"ok": False, "error": "no hay landmarks"}), 500
+    a = (_LM[0][1], _LM[0][2])
+    b = (_LM[1][1], _LM[1][2])
+    ruta = None
+    error = None
+    try:
+        ruta = _route(a, b)
+    except Exception as exc:
+        error = repr(exc)
+    return jsonify({
+        "url": _URL,
+        "profile": _PROF,
+        "disponible": _disp(),
+        "origen": {"nombre": _LM[0][0], "lat": a[0], "lon": a[1]},
+        "destino": {"nombre": _LM[1][0], "lat": b[0], "lon": b[1]},
+        "puntos_ruta": len(ruta) if ruta else 0,
+        "muestra": ruta[:5] if ruta else None,
+        "ok": ruta is not None and len(ruta) >= 2,
+        "error": error,
     })
 
 @app.route('/health/inventory')

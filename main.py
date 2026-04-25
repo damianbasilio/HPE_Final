@@ -7,6 +7,7 @@ import os
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from io import BytesIO
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for, Response
@@ -124,52 +125,93 @@ def bucle_telemetria():
             logger.warning("Telemetria fallo: %s", exc)
             time.sleep(2)
 
+_PRIORIDAD_POR_SEVERIDAD = {
+    'critical': 'P1',
+    'high': 'P2',
+    'medium': 'P3',
+    'low': 'P4',
+}
+
+def _ahora_iso_ms() -> str:
+    ahora = datetime.now(timezone.utc)
+    return ahora.strftime('%Y-%m-%dT%H:%M:%S.') + f"{ahora.microsecond // 1000:03d}Z"
+
+def _derivar_state_availability(estado: dict) -> tuple:
+    esc = estado.get('escenario') or {}
+    activo = str(esc.get('activo') or '').lower()
+    if 'reabasteci' in activo or 'recargando' in activo:
+        return 'refueling', 'unavailable'
+    if esc.get('en_camino'):
+        return 'en_route', 'busy'
+    if esc.get('en_escena'):
+        return 'on_scene', 'busy'
+    if activo in ('', 'patrulla') or not esc.get('en_progreso'):
+        return 'patrol', 'available'
+    return 'intervention', 'busy'
+
 def construir_telemetria(veh) -> dict:
     estado = veh.obtener_estado()
     gps = estado.get('gps') or {}
-    incidente = fleet._incidente_actual(veh.id)  
+    incidente = fleet._incidente_actual(veh.id)
     costes = estado.get('costes') or {}
+    esc = estado.get('escenario') or {}
+
+    state, availability = _derivar_state_availability(estado)
+    priority = None
+    if incidente:
+        priority = _PRIORIDAD_POR_SEVERIDAD.get((incidente.get('severity') or '').lower())
+
+    velocidad = float(estado.get('velocidad') or 0.0)
+    heading = float(getattr(veh, 'heading', 0.0)) if velocidad > 0.5 else None
 
     payload = {
         "schema_version": "1.0.0",
         "message_type": "fleet_telemetry",
         "team_id": TEAM_ID,
-        "sent_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        "sent_at": _ahora_iso_ms(),
         "vehicle": {
-            "vehicle_id": veh.id,
-            "vehicle_type": veh.TIPO,
-            "unit_name": veh.metadatos.get('nombre', veh.id),
-            "propulsion": veh.propulsion,
+            "vehicle_id": str(veh.id),
+            "vehicle_type": str(veh.TIPO),
+            "unit_name": veh.metadatos.get('nombre') if veh.metadatos else None,
         },
         "telemetry": {
-            "position": {"lat": gps.get('latitud'), "lon": gps.get('longitud')},
-            "speed": {"value": estado.get('velocidad'), "unit": "kmh"},
-            "fuel_pct": estado.get('combustible'),
-            "engine_temp_c": estado.get('temperatura_motor'),
-            "factor_entorno": estado.get('factor_entorno'),
+            "position": {
+                "lat": float(gps.get('latitud') or 0.0),
+                "lon": float(gps.get('longitud') or 0.0),
+            },
+            "speed": {
+                "value": round(velocidad, 2),
+                "unit": "kmh",
+            },
+            "heading": heading,
         },
         "operational_status": {
-            "scenario": estado.get('escenario', {}).get('activo'),
-            "en_route": estado.get('escenario', {}).get('en_camino'),
-            "on_scene": estado.get('escenario', {}).get('en_escena'),
-            "eta_seg": estado.get('escenario', {}).get('eta_seg'),
+            "state": state,
+            "availability": availability,
+            "priority": priority,
         },
-        "incident": {
+        "incident": ({
             "incident_id": incidente.get('incident_id'),
             "incident_type": incidente.get('incident_type'),
             "incident_status": incidente.get('incident_status'),
             "severity": incidente.get('severity'),
-        } if incidente else None,
-        "costs": {
-            "coste_total_eur": costes.get('coste_total_eur', 0.0),
-            "coste_intervencion_eur": costes.get('coste_intervencion_eur', 0.0),
-            "intervenciones_realizadas": costes.get('intervenciones_realizadas', 0),
+        } if incidente else None),
+        "costs": ({
+            "total_eur": round(float(costes.get('coste_total_eur') or 0.0), 2),
+            "intervention_eur": round(float(costes.get('coste_intervencion_eur') or 0.0), 2),
+            "interventions_done": int(costes.get('intervenciones_realizadas') or 0),
             "currency": "EUR",
-        },
-        "specialty_data": estado.get('especializado', {}),
+        } if costes else None),
+        "specialty_data": estado.get('especializado') or {},
         "metadata": {
             "trace_id": str(uuid.uuid4()),
             "producer": "digital-twin-backend",
+            "propulsion": veh.propulsion,
+            "scenario": esc.get('activo'),
+            "eta_seg": esc.get('eta_seg'),
+            "fuel_pct": estado.get('combustible'),
+            "engine_temp_c": estado.get('temperatura_motor'),
+            "factor_entorno": estado.get('factor_entorno'),
         },
     }
     return payload

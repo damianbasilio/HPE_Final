@@ -216,6 +216,10 @@ def proteger_vistas():
     if not session.get('autenticado'):
         return redirect(url_for('login'))
 
+    # Role-based access: only operators can access the operator dashboard
+    if request.endpoint == 'operador' and session.get('rol') != 'operador':
+        return redirect(url_for('visualizador'))
+
 @app.route('/')
 def index():
     return render_template('landing.html')

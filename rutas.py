@@ -118,11 +118,15 @@ def _dijkstra(adyacencia: Dict, origen: Tuple[float, float], destino: Tuple[floa
     return ruta
 
 def generar_ruta(origen: Tuple[float, float], destino: Tuple[float, float]) -> List[List[float]]:
-    if osrm_disponible():
-        ruta_osrm = osrm_route(origen, destino)
-        if ruta_osrm and len(ruta_osrm) >= 2:
-            return ruta_osrm
+    # Always try OSRM/Valhalla first (osrm_route falls back to Valhalla internally)
+    try:
+        ruta_api = osrm_route(origen, destino)
+        if ruta_api and len(ruta_api) >= 2:
+            return ruta_api
+    except Exception as exc:
+        logger.warning("[rutas] API de enrutamiento fallo: %s", exc)
 
+    # Fallback: Dijkstra over the inventory road graph
     nodos, adyacencia = _obtener_grafo()
     if not nodos:
         return [list(origen), list(destino)]

@@ -69,10 +69,12 @@ class KafkaBus:
             self._weather_consumer = None
 
         try:
+            # Use 'latest' so only new/active incidents are processed in real-time.
+            # Historical replay is handled by the simulation system (simulaciones.py).
             self._events_consumer = self._crear_consumer(
-                KAFKA_TOPIC_EVENTOS, group_id=f"{TEAM_ID}-events"
+                KAFKA_TOPIC_EVENTOS, group_id=f"{TEAM_ID}-events", auto_offset_reset="latest"
             )
-            logger.info("Kafka consumer suscrito a %s", KAFKA_TOPIC_EVENTOS)
+            logger.info("Kafka consumer suscrito a %s (offset=latest)", KAFKA_TOPIC_EVENTOS)
         except Exception as exc:
             logger.error("Kafka consumer eventos NO disponible (%s).", exc, exc_info=True)
             self._events_consumer = None

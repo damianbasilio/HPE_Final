@@ -81,6 +81,21 @@ inventario = InventarioAruba()
 bus = KafkaBus()
 configurar_bus(bus)
 
+try:
+    _roads_iniciales = inventario.obtener_carreteras() or []
+    _pois_iniciales = inventario.obtener_pois() or []
+    _stations_iniciales = inventario.obtener_estaciones() or []
+    logger.info(
+        "[Inventory] cargado al arrancar: %d carreteras, %d POIs, %d estaciones",
+        len(_roads_iniciales), len(_pois_iniciales), len(_stations_iniciales),
+    )
+    if not _roads_iniciales:
+        logger.warning(
+            "[Inventory] sin carreteras del inventory API: rutas seran lineas rectas entre landmarks",
+        )
+except Exception as exc:
+    logger.error("[Inventory] no se pudo precargar inventory: %s", exc)
+
 socketio = inicializar_socketio(app, fleet)
 gestor_simulaciones = GestorSimulaciones(fleet, bus)
 
@@ -161,8 +176,8 @@ threading.Thread(target=bucle_telemetria, daemon=True).start()
 @app.before_request
 def proteger_vistas():
     public_endpoints = {
-        'health', 'health_kafka', 'health_kafka_probe', 'openapi',
-        'vehicles_status', 'list_vehicles', 'get_vehicle',
+        'health', 'health_kafka', 'health_kafka_probe', 'health_inventory', 'health_fleet',
+        'openapi', 'vehicles_status', 'list_vehicles', 'get_vehicle',
         'list_incidents', 'list_simulations', 'sim_replay', 'sim_state', 'sim_pause',
         'sim_speed', 'ask_fleet', 'weather_stations', 'weather_reading', 'index',
         'login', 'static', 'ciudadano', 'api_contexto'
@@ -249,6 +264,55 @@ def health_kafka():
         "ultimo_weather": weather_cache[-1] if weather_cache else None,
         "ultimos_eventos": events_cache[-5:] if events_cache else [],
         "stations_distintas": len(getattr(bus, '_weather_by_station', {}) or {}),
+    })
+
+@app.route('/health/inventory')
+def health_inventory():
+    try:
+        roads = inventario.obtener_carreteras() or []
+        pois = inventario.obtener_pois() or []
+        stations = inventario.obtener_estaciones() or []
+        muestra_road = roads[0] if roads else None
+        return jsonify({
+            "base_url": inventario.base_url,
+            "roads": len(roads),
+            "pois": len(pois),
+            "stations": len(stations),
+            "muestra_road": muestra_road,
+            "ok": True,
+        })
+    except Exception as exc:
+        return jsonify({
+            "base_url": inventario.base_url,
+            "ok": False,
+            "error": repr(exc),
+        }), 500
+
+@app.route('/health/fleet')
+def health_fleet():
+    vehiculos = fleet.estado_resumen()
+    incidentes = fleet.listado_incidentes()
+    return jsonify({
+        "vehiculos": [{
+            "id": v.get('id'),
+            "tipo": v.get('tipo'),
+            "nombre": v.get('nombre'),
+            "lat": (v.get('gps') or {}).get('latitud'),
+            "lon": (v.get('gps') or {}).get('longitud'),
+            "escenario": (v.get('escenario') or {}).get('activo'),
+            "en_camino": (v.get('escenario') or {}).get('en_camino'),
+            "en_escena": (v.get('escenario') or {}).get('en_escena'),
+            "incidente": (v.get('incidente') or {}).get('incident_id') if v.get('incidente') else None,
+        } for v in vehiculos],
+        "incidentes": [{
+            "id": i.get('incident_id'),
+            "type": i.get('incident_type'),
+            "status": i.get('status'),
+            "lat": i.get('lat'),
+            "lon": i.get('lon'),
+            "unidad": i.get('unidad_id'),
+        } for i in incidentes],
+        "asignaciones": dict(fleet.asignaciones),
     })
 
 @app.route('/health/kafka/probe')

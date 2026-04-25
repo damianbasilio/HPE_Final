@@ -3,12 +3,18 @@
     "username": "operador1",
     "password": "cambiar_contrasena",
     "rol": "operador",
-    "nombre": "Operador"
+    "nombre": "Operador 1"
   },
   {
-    "username": "dispatch",
+    "username": "operador2",
     "password": "cambiar_contrasena",
-    "rol": "despachador",
-    "nombre": "Controlador"
+    "rol": "operador",
+    "nombre": "Operador 2"
+  },
+  {
+    "username": "visualizador1",
+    "password": "cambiar_contrasena",
+    "rol": "visualizador",
+    "nombre": "Visualizador"
   }
 ]

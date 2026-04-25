@@ -28,7 +28,7 @@ LLM_THINKING = os.getenv('LLM_THINKING', 'false').lower() == 'true'
 # Intervalo de actualizacion del simulador (segundos)
 INTERVALO_ACTUALIZACION = float(os.getenv('INTERVALO_SIM', 0.5))
 
-# Intervalo de publicacion de telemetria a Kafka (segundos)
+# Intervalo de publicacion de telemetria a Kafka (segundos) - tope del PDF: 5-10s
 INTERVALO_TELEMETRIA = float(os.getenv('INTERVALO_TELEMETRIA', 7.5))
 
 # Rangos aleatorios iniciales del vehiculo (minimo, maximo)
@@ -52,10 +52,10 @@ CENTRO_ARUBA = (12.5211, -69.9683)
 
 # Limites geograficos aproximados de Aruba (lat_min, lat_max, lon_min, lon_max)
 ARUBA_BOUNDS = (
-	float(os.getenv('ARUBA_LAT_MIN', 12.4)),
-	float(os.getenv('ARUBA_LAT_MAX', 12.7)),
-	float(os.getenv('ARUBA_LON_MIN', -70.1)),
-	float(os.getenv('ARUBA_LON_MAX', -69.8))
+    float(os.getenv('ARUBA_LAT_MIN', 12.4)),
+    float(os.getenv('ARUBA_LAT_MAX', 12.7)),
+    float(os.getenv('ARUBA_LON_MIN', -70.1)),
+    float(os.getenv('ARUBA_LON_MAX', -69.8))
 )
 
 # Cache de datos de entorno (segundos)
@@ -64,7 +64,7 @@ CACHE_ENTORNO = int(os.getenv('CACHE_ENTORNO', 300))
 # Kafka
 KAFKA_BROKER = os.getenv('KAFKA_BROKER', '10.10.48.30:9092')
 KAFKA_USERNAME = os.getenv('KAFKA_USERNAME', '52sec')
-KAFKA_PASSWORD = os.getenv('KAFKA_PASSWORD', '355fdfcf64366b3c5c274bc3ca7b8bfe')
+KAFKA_PASSWORD = os.getenv('KAFKA_PASSWORD', '')
 KAFKA_SECURITY_PROTOCOL = os.getenv('KAFKA_SECURITY_PROTOCOL', 'SASL_PLAINTEXT')
 KAFKA_SASL_MECHANISM = os.getenv('KAFKA_SASL_MECHANISM', 'PLAIN')
 KAFKA_TOPIC_TELEMETRIA = os.getenv('KAFKA_TOPIC_TELEMETRIA', 'aruba.team.52sec')
@@ -90,3 +90,14 @@ CORS_ORIGENES = _cors_raw if _cors_raw == '*' else [o.strip() for o in _cors_raw
 # Seguridad de cookies de sesion
 COOKIE_HTTPONLY = True
 COOKIE_SAMESITE = 'Lax'
+
+# Tipos de vehiculo soportados por la flota.
+# Importante: la jerarquia de clases del Gemelo Digital se apoya en este
+# registro y la factory los valida contra `costos.obtener_tarifa`.
+TIPOS_VEHICULO_VALIDOS = (
+    'policia', 'ambulancia', 'bomberos', 'proteccion_civil', 'dron'
+)
+
+# Re-export de la tarifa para que las clases de vehiculo puedan importarla
+# directamente desde `config` (mantiene compatibilidad con el modelo POO nuevo).
+from costos import obtener_tarifa  # noqa: E402,F401

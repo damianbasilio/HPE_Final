@@ -1,255 +1,221 @@
-# Gemelo Digital de Vehículo Policial
+# Gemelo Digital de Aruba — Servicios de Emergencia
 
-> Prototipo funcional de un Gemelo Digital que modela en tiempo real un vehículo policial, permite simular escenarios tácticos mediante lenguaje natural y aporta inteligencia operativa a través de IA.
+> Plataforma de gemelo digital que modela en tiempo real la flota de emergencias de Aruba (Policia, Ambulancia, Bomberos, Proteccion Civil y Drones), integrando telemetria propia, eventos de la isla y clima a traves de buses Kafka, con interfaces de operador y visualizador, chatbot LLM y replay historico.
 
-**Equipo:** 52Sec · **Fase:** HPE 2026 · **Versión:** 1.0
+**Equipo:** 52Sec · **Convocatoria:** HPE 2026 · **Version:** 2.0
 
 ---
 
-## Descripción
+## Caracteristicas
 
-El sistema replica el comportamiento completo de un vehículo policial — combustible, motor, frenos, neumáticos, posición GPS — y permite crear escenarios tácticos descritos en lenguaje natural. Un motor de IA (Claude Sonnet 4) analiza viabilidad, riesgos e impacto en recursos antes de cada operación.
-
-### Capacidades principales
-
-- **Telemetría en tiempo real** del estado del vehículo con actualización a 10 Hz.
-- **Simulación de escenarios tácticos** descritos en lenguaje natural.
-- **Análisis de IA** con evaluación de viabilidad, riesgos e impacto en recursos.
-- **Rutas reales** sobre calles de Madrid con datos de clima y tráfico en vivo.
-- **Centro de Comando** para coordinación de múltiples unidades simultáneamente.
+- **Multi-flota** con factory de unidades especializadas: patrullas policiales, ambulancias, camiones de bomberos, vehiculos de proteccion civil y drones de reconocimiento.
+- **Bus de eventos Kafka**: publica telemetria propia (`aruba.team.<id>`) y consume eventos (`aruba.events`) y clima (`aruba.weather`) de la isla.
+- **ETA dinamico**: la velocidad efectiva de cada unidad se modula con el factor de entorno (clima/eventos), recalculando el tiempo de llegada en tiempo real.
+- **Reconocimiento aereo opcional**: ante eventos de alto impacto se despliega automaticamente un dron scout sobre el incidente.
+- **Replay historico desde 1-abr**: el visualizador puede iniciar simulaciones reproduciendo eventos pasados con control de velocidad y pausa.
+- **Dashboard Leaflet** centrado en Aruba (12.52, -69.97) con tiles CartoDB Dark, marcadores por unidad, polilineas de ruta y trazas de movimiento.
+- **Chatbot LLM** (Qwen / Gemma compatible OpenAI) con contexto operativo en vivo (flota, incidentes, clima).
+- **API REST + OpenAPI 3.1** publicada en `/openapi.yaml` y disponible para los demas equipos.
+- **Roles diferenciados**: Operador (control multi-unidad y asignacion manual) y Visualizador (lectura global + replay).
 
 ---
 
 ## Arquitectura
 
 ```
-┌─────────────────────── APIs Externas ───────────────────────┐
-│  Open-Meteo  │  TomTom Traffic  │  OSRM  │  Nominatim  │  Anthropic IA  │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────┐
-│                SERVIDOR FLASK + GEVENT                       │
-│                                                              │
-│  ┌─────────────────┐  ┌──────────────┐  ┌────────────────┐  │
-│  │ Motor Simulación│  │  Motor de IA │  │ WebSocket Server│  │
-│  │ (Hilo 10 Hz)    │  │ Claude Sonnet│  │ Flask-SocketIO  │  │
-│  └─────────────────┘  └──────────────┘  └────────────────┘  │
-│  ┌─────────────────┐  ┌──────────────┐  ┌────────────────┐  │
-│  │VehiculoPolicial │  │ SimuladorGPS │  │    Entorno      │  │
-│  │Telemetría,fases │  │ OSRM,Haversine│ │ Clima,Tráfico  │  │
-│  └─────────────────┘  └──────────────┘  └────────────────┘  │
-└──────────┬───────────────────────────────────┬──────────────┘
-           │          WebSocket (Socket.IO)     │
-    ┌──────▼──────┐                     ┌──────▼──────┐
-    │  Simulador  │                     │  Centro de  │
-    │ (Operador)  │                     │   Comando   │
-    │             │                     │(Despachador)│
-    └─────────────┘                     └─────────────┘
+                           Aruba Buses (Kafka)
+                                  |
+        +---------------+---------+---------+---------------+
+        |               |                   |               |
+   aruba.events    aruba.weather      aruba.team.52sec   ...otros equipos
+        |               |                   ^
+        v               v                   |
++---------------------------------------------------------+
+|                Servidor Flask + Gevent                   |
+|                                                          |
+|  KafkaBus  --> Entorno + FleetManager                    |
+|                  |              |                        |
+|                  v              v                        |
+|              Vehiculos     Incidentes / Asignaciones     |
+|                  |              |                        |
+|                  +--> SocketIO bucle_difusion -----+     |
+|                                                    |     |
+|  IA (LLM) <-- /ask  /api/context     /openapi.yaml |     |
+|                                                    |     |
+|  GestorSimulaciones (live + replay 1-abr)          |     |
++---------------------------------------------------------+
+                                                    |
+                              Socket.IO + REST       |
+                                                    v
+                        +---------------+    +---------------+
+                        |   Operador    |    |  Visualizador |
+                        | (multi-unidad)|    |  (replay/RO)  |
+                        +---------------+    +---------------+
 ```
-
-El sistema sigue una arquitectura cliente-servidor con comunicación bidireccional en tiempo real. El servidor ejecuta la simulación completa y los clientes renderizan el estado recibido, garantizando consistencia entre múltiples usuarios.
 
 ---
 
-## Stack Tecnológico
+## Stack tecnologico
 
-### Backend
-
-| Tecnología | Uso |
+| Capa | Tecnologia |
 |---|---|
-| Python 3.x | Lenguaje del servidor |
-| Flask | Framework web (rutas HTTP, sesiones, templates) |
-| Flask-SocketIO | Servidor WebSocket con soporte de salas y eventos |
-| Gevent | Servidor WSGI asíncrono para concurrencia |
-| Gunicorn | Servidor de producción (worker class gevent) |
-| Anthropic SDK | Integración con la API de Claude |
-| Werkzeug | Hash seguro de contraseñas |
-| python-dotenv | Carga de variables de entorno desde `.env` |
+| Servidor | Python 3.11, Flask 3, Flask-Session, Flask-SocketIO + gevent |
+| Mensajeria | kafka-python (SASL_PLAINTEXT) |
+| Frontend | HTML/CSS/JS vanilla + Leaflet 1.9 + Socket.IO 4.7 |
+| Mapas/rutas | Tiles CartoDB Dark, OSRM (rutas), Haversine (interpolacion) |
+| LLM | API OpenAI-compatible (Qwen3-235B-A22B / Gemma) |
+| Empaquetado | Docker, docker-compose |
 
-### Frontend
-
-| Tecnología | Uso |
-|---|---|
-| HTML5 / CSS3 / JavaScript ES6+ | Interfaz sin frameworks externos |
-| Leaflet 1.9.4 | Mapas interactivos con tiles CartoDB Dark |
-| Socket.IO Client 4.7.2 | Comunicación WebSocket bidireccional |
-
-### APIs Externas
-
-| API | Dato | Autenticación |
-|---|---|---|
-| Anthropic | Análisis de escenarios con Claude Sonnet 4 | API Key |
-| Open-Meteo | Clima actual en Madrid | Pública |
-| TomTom Traffic | Estado del tráfico en tiempo real | API Key |
-| OSRM | Rutas reales entre coordenadas | Pública |
-| Nominatim (OSM) | Geocodificación de direcciones | Pública (User-Agent) |
+Todas las dependencias son **Open Source**. Los buses externos (Aruba inventory, Kafka, LLM) son los proporcionados por la organizacion HPE 2026.
 
 ---
 
-## Estructura del Proyecto
+## Estructura del proyecto
 
 ```
-HPE/
-├── main.py                 # Servidor principal Flask + hilo de simulación
-├── config.py               # Configuración centralizada (variables de entorno)
-├── vehiculo.py             # Clase VehiculoPolicial (telemetría y escenarios)
-├── ia.py                   # Motor de IA (integración con Anthropic Claude)
-├── prompts.py              # Prompts estructurados para la IA
-├── gps.py                  # Simulador GPS (interpolación, Haversine)
-├── rutas.py                # Generación de rutas (OSRM, Nominatim)
-├── entorno.py              # Datos de entorno (clima Open-Meteo, tráfico TomTom)
-├── socketio_server.py      # Servidor WebSocket (difusión en tiempo real)
-├── auth.py                 # Autenticación y gestión de sesiones
-├── helpers.py              # Funciones auxiliares
-├── gunicorn.ctl            # Configuración de Gunicorn para producción
-├── users.json.example      # Ejemplo de archivo de usuarios
-├── .env                    # Variables de entorno (no incluido en repo)
-├── users.json              # Credenciales de usuarios (no incluido en repo)
-├── static/
-│   ├── css/style.css       # Estilos (diseño oscuro profesional)
-│   └── js/
-│       ├── simulador.js    # Lógica del simulador (telemetría, mapa, escenarios)
-│       └── socketClient.js # Cliente WebSocket (reconexión automática)
-└── templates/
-    ├── base.html           # Template base con navegación
-    ├── landing.html        # Página de inicio
-    ├── login.html          # Inicio de sesión
-    ├── simulador.html      # Vista del operador
-    └── comando.html        # Vista del centro de comando
+HPE_Final/
+|-- main.py                  # Servidor Flask + bucle de simulacion + telemetria Kafka
+|-- config.py                # Configuracion centralizada (load_dotenv)
+|-- costos.py                # Tarifas operativas por unidad/propulsion
+|-- flota.py                 # FleetManager (factory + incidentes + scout aereo)
+|-- vehiculo_base.py         # Clase base con telemetria, GPS y escenarios
+|-- vehiculo_factory.py      # Factory que instancia la unidad correcta
+|-- vehiculo_policia.py
+|-- vehiculo_ambulancia.py
+|-- vehiculo_bomberos.py
+|-- vehiculo_proteccion_civil.py
+|-- vehiculo_dron.py
+|-- gps.py                   # SimuladorGPS (interpolacion sobre rutas)
+|-- rutas.py                 # OSRM + patrullas + clusters
+|-- entorno.py               # Cache de clima/eventos publicados por Aruba
+|-- kafka_bus.py             # Productor/consumidor Kafka
+|-- inventario_aruba.py      # Cliente del inventario de la isla
+|-- ia.py / llm_client.py    # Chat con LLM
+|-- prompts.py               # Plantillas de prompt
+|-- socketio_server.py       # Salas, broadcast y controles del operador
+|-- simulaciones.py          # Replay historico + simulacion en vivo
+|-- auth.py                  # Login y gestion de sesiones
+|-- helpers.py
+|-- apis/
+|   `-- team-api.yaml        # OpenAPI 3.1 publicado en /openapi.yaml
+|-- static/
+|   |-- css/{style.css, dashboard.css}
+|   `-- js/{panel_flota.js, operador.js, visualizador.js}
+|-- templates/
+|   |-- base.html  landing.html  login.html
+|   |-- simulador.html        # Vista del operador
+|   `-- comando.html          # Vista del visualizador
+|-- users.json.example
+|-- requirements.txt
+|-- Dockerfile
+|-- docker-compose.yml
+`-- .env.example
 ```
 
 ---
 
-## Instalación
-
-### Requisitos previos
-
-- Python 3.8 o superior
-- Clave API de Anthropic (para análisis con IA)
-- Clave API de TomTom (opcional, para datos de tráfico)
-
-### Pasos
+## Instalacion local
 
 ```bash
-# Clonar el repositorio
-git clone <repositorio>
-cd HPE
+git clone <repo>
+cd HPE_Final
 
-# Crear entorno virtual
 python -m venv venv
-source venv/bin/activate
+source venv/bin/activate          # o .\venv\Scripts\activate en Windows
 
-# Instalar dependencias
-pip install flask flask-socketio flask-session gevent gunicorn \
-    anthropic requests python-dotenv werkzeug
+pip install -r requirements.txt
+
+cp .env.example .env               # rellenar credenciales
+cp users.json.example users.json   # crear usuarios reales
+
+python main.py
 ```
 
----
+Servidor disponible en `http://localhost:8080`.
 
-## Configuración
-
-### 1. Variables de entorno
-
-Crear un archivo `.env` en la raíz del proyecto:
-
-```env
-FLASK_SECRET_KEY=clave_secreta_aleatoria
-FLASK_DEBUG=false
-HOST_SERVIDOR=0.0.0.0
-PUERTO_SERVIDOR=5000
-ANTHROPIC_API_KEY=sk-ant-...
-TOMTOM_API_KEY=clave_tomtom
-```
-
-### 2. Usuarios
-
-Crear el archivo `users.json` basándose en `users.json.example`:
-
-```json
-[
-  {
-    "username": "operador1",
-    "password": "contrasena_segura",
-    "rol": "operador",
-    "nombre": "Operador 1"
-  },
-  {
-    "username": "dispatch",
-    "password": "contrasena_segura",
-    "rol": "despachador",
-    "nombre": "Central"
-  }
-]
-```
-
----
-
-## Ejecución
+## Ejecucion en Docker
 
 ```bash
-# Desarrollo
-python main.py
-
-# Producción con Gunicorn
-gunicorn --worker-class gevent -w 1 --bind 0.0.0.0:5000 main:app
+cp .env.example .env
+docker compose up --build -d
 ```
+
+El compose monta `users.json`, `flask_session/` y `logs/` como volumenes y expone el puerto 8080. El healthcheck consulta `/health`.
 
 ---
 
-## Roles de Usuario
+## Variables de entorno principales
+
+| Variable | Proposito |
+|---|---|
+| `TEAM_ID` | Identificador del equipo (se usa para componer el topic de telemetria). |
+| `KAFKA_BROKER`, `KAFKA_USERNAME`, `KAFKA_PASSWORD` | Credenciales SASL_PLAINTEXT del bus Kafka de Aruba. |
+| `KAFKA_TOPIC_TELEMETRIA` | Topic donde el equipo publica su telemetria. |
+| `KAFKA_TOPIC_CLIMA`, `KAFKA_TOPIC_EVENTOS` | Buses oficiales de Aruba que se consumen. |
+| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | Endpoint OpenAI-compatible para el chatbot. |
+| `HOST_SERVIDOR`, `PUERTO_SERVIDOR` | Bind del servidor Flask. |
+| `INTERVALO_SIM`, `INTERVALO_TELEMETRIA` | Frecuencia del bucle de simulacion y la publicacion Kafka. |
+
+Todos los valores estan documentados en `.env.example`.
+
+---
+
+## API REST
+
+| Metodo | Ruta | Descripcion |
+|---|---|---|
+| GET | `/health` | Healthcheck. |
+| GET | `/openapi.yaml` | Contrato OpenAPI 3.1 del equipo. |
+| GET | `/vehicles` | Estado completo de la flota. |
+| GET | `/vehicles/status` | Resumen agregado (totales, costes, ocupacion). |
+| GET | `/vehicles/{id}` | Detalle de una unidad. |
+| GET | `/incidents` | Incidentes activos y resueltos. |
+| GET | `/simulations` | Lista de simulaciones (live + replays). |
+| POST | `/simulations/replay` | Lanza un replay con `started_at` y `speed`. |
+| GET | `/simulations/{sim_id}/state` | Estado del replay. |
+| POST | `/simulations/{sim_id}/pause` | Pausa o reanuda. |
+| POST | `/simulations/{sim_id}/speed` | Ajusta velocidad. |
+| POST | `/ask` | Chatbot con LLM. |
+| GET | `/api/context` | Contexto (flota + entorno) para integraciones. |
+
+Eventos Socket.IO clave:
+
+| Evento | Direccion |
+|---|---|
+| `estado_inicial` | Servidor -> cliente al conectar |
+| `actualizacion_flotas` | Servidor -> sala (operadores+visualizadores) cada `INTERVALO_ACTUALIZACION` |
+| `control_incidente` | Operador -> servidor (`asignar` / `cerrar` / `apoyo` / `mensaje`) |
+| `mensaje_central` | Servidor -> sala global |
+
+---
+
+## Roles
 
 | Rol | Vista | Capacidades |
 |---|---|---|
-| **Operador** | Simulador | Tiene su propio vehículo policial. Crea escenarios en lenguaje natural, monitorea telemetría en vivo, ve posición GPS y controla la simulación. |
-| **Despachador** | Centro de Comando | Sin vehículo propio. Ve todas las unidades conectadas en un mapa unificado. Selecciona cualquier unidad para ver sus detalles. Recibe actualizaciones de todos los vehículos. |
+| **Operador** | `/operador` | Ve toda la flota, asigna manualmente unidades, cierra incidentes, solicita apoyo y emite mensajes a la flota. Multiples operadores pueden trabajar simultaneamente. |
+| **Visualizador** | `/visualizador` | Solo lectura. Visualiza la flota completa, los incidentes y dispone de controles para lanzar replays historicos a partir del 1 de abril. |
 
 ---
 
-## Simulación de Escenarios con IA
+## Replay historico
 
-1. **Entrada del usuario** — El operador describe un escenario en lenguaje natural (ej: *"Acudir a un accidente en Gran Vía con heridos"*).
-2. **Enriquecimiento con contexto real** — Se obtiene clima actual (Open-Meteo), tráfico en tiempo real (TomTom) y estado completo del vehículo.
-3. **Análisis con IA** — Claude Sonnet 4 recibe todo el contexto y devuelve: detección del escenario (fases, duración, perfil de velocidad) y análisis operativo (riesgos, impacto, viabilidad).
-4. **Generación de ruta** — Si hay ubicación, se geocodifica con Nominatim y se calcula la ruta con OSRM por calles reales de Madrid.
-5. **Aplicación al vehículo** — Se establecen velocidad objetivo, modificadores de consumo/temperatura/desgaste y ruta GPS.
-6. **Ejecución en tiempo real** — La simulación avanza a 10 Hz. El operador observa telemetría actualizada y el vehículo moviéndose en el mapa.
+Desde el visualizador (o por API):
 
----
+```bash
+curl -X POST http://localhost:8080/simulations/replay \
+     -H 'Content-Type: application/json' \
+     -d '{"started_at": "2026-04-01T08:00:00Z", "speed": 4.0}'
+```
 
-## Telemetría del Vehículo
-
-| Sistema | Variable | Comportamiento |
-|---|---|---|
-| Motor | Temperatura | Sube con la velocidad, baja cuando está parado. Máx: 120°C |
-| Combustible | Nivel (%) | Consumo proporcional a velocidad y factor del escenario |
-| Frenos | Desgaste (%) | Proporcional a velocidad y factor de desgaste |
-| Neumáticos | Desgaste (%) | Similar a frenos, con mayor factor |
-| Aceite | Nivel (%) | Valor fijo con inicialización aleatoria (80-100%) |
-| Velocidad | km/h | Aceleración/frenado gradual con perfil configurable |
-| GPS | lat/lon | Interpolación sobre rutas reales (OSRM + Haversine) |
+El gestor crea un `KafkaConsumer` con `auto_offset_reset=earliest` y reinyecta los eventos pasados al `FleetManager` respetando el delta de tiempo escalado por la velocidad solicitada.
 
 ---
 
-## Comunicación en Tiempo Real
+## Demo
 
-| Evento | Dirección | Frecuencia |
-|---|---|---|
-| `estado_vehiculo` | Servidor → Operador | Cada 100ms |
-| `actualizacion_vehiculo` | Servidor → Despachadores | Cada 500ms |
-| `todos_vehiculos` | Servidor → Despachador | Al conectarse |
-| `control_simulacion` | Operador → Servidor | Bajo demanda |
-| `vehiculo_desconectado` | Servidor → Despachadores | Al desconectarse |
-
-La ruta solo se envía cuando cambia (nueva ruta de patrulla o escenario) mediante un sistema de versionado.
-
----
-
-## Demo en Vivo
-
-**URL:** [https://hpe.52sec.org](https://hpe.52sec.org)
-
----
+URL: por confirmar
 
 ## Licencia
 
-Proyecto desarrollado por el equipo **52Sec** para HPE 2026.
+Proyecto realizado por el equipo **52Sec** para HPE 2026.

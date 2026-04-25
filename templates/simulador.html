@@ -1,75 +1,76 @@
 {% extends "base.html" %}
 
-{% block title %}Operador — Aruba Gemelo Digital{% endblock %}
+{% block title %}Operador - Aruba Gemelo Digital{% endblock %}
 
 {% block head_extra %}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=1">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="/socket.io/socket.io.js" defer></script>
-  <script src="{{ url_for('static', filename='js/mapa_aruba.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/panel_flota.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/operador.js') }}" defer></script>
 {% endblock %}
 
 {% block content %}
-<div class="dashboard-grid">
-  <section class="panel telemetry">
-    <h2>Telemetria</h2>
-    <div class="metric-row">
-      <div class="metric">
-        <span class="label">Velocidad</span>
-        <span id="velocidad-valor" class="value">0</span>
-        <span class="unit">km/h</span>
-      </div>
-      <div class="metric">
-        <span class="label">Energia</span>
-        <span id="energia-valor" class="value">--</span>
-        <span class="unit">%</span>
-      </div>
-      <div class="metric">
-        <span class="label">Temp</span>
-        <span id="temperatura-valor" class="value">--</span>
-        <span class="unit">C</span>
-      </div>
+<div class="dt-dashboard">
+  <header class="dt-summary">
+    <div class="dt-card">
+      <span class="label">Total flota</span>
+      <span class="value" id="flota-total">--</span>
     </div>
-    <div class="metric-row">
-      <div class="metric wide">
-        <span class="label">Estado de servicio</span>
-        <span id="estado-servicio" class="value">disponible</span>
-      </div>
-      <div class="metric wide">
-        <span class="label">Incidente activo</span>
-        <span id="incidente-titulo" class="value">Sin incidente</span>
-      </div>
-      <div class="metric wide">
-        <span class="label">Coste acumulado</span>
-        <span id="coste-acumulado" class="value">0.00</span>
-        <span class="unit">EUR</span>
-      </div>
+    <div class="dt-card">
+      <span class="label">Activas</span>
+      <span class="value" id="flota-activos">--</span>
     </div>
-  </section>
+    <div class="dt-card">
+      <span class="label">Coste total</span>
+      <span class="value" id="flota-coste">0.00</span>
+      <span class="unit">EUR</span>
+    </div>
+    <div class="dt-card actions">
+      <button class="btn btn-ghost" data-apoyo="ambulancia">+ ambulancia</button>
+      <button class="btn btn-ghost" data-apoyo="bomberos">+ bomberos</button>
+      <button class="btn btn-ghost" data-apoyo="policia">+ policia</button>
+      <button class="btn btn-ghost" data-apoyo="proteccion_civil">+ proteccion civil</button>
+      <button class="btn btn-ghost" data-apoyo="dron">+ dron scout</button>
+      <button class="btn btn-primary" id="btn-mensaje-central">Mensaje a flota</button>
+    </div>
+  </header>
 
-  <section class="panel map">
-    <h2>Mapa Aruba</h2>
-    <canvas id="mapa-operador" class="map-canvas"></canvas>
-  </section>
+  <div class="dt-grid">
+    <aside class="dt-side">
+      <section class="panel">
+        <h2>Unidades</h2>
+        <div id="unidades-lista" class="vehicle-list"></div>
+      </section>
+      <section class="panel">
+        <h2>Incidentes</h2>
+        <div id="incidentes-lista" class="incidentes-list"></div>
+      </section>
+    </aside>
 
-  <section class="panel actions">
-    <h2>Control de Incidente</h2>
-    <div class="action-row">
-      <button id="btn-cerrar-incidente" class="btn btn-primary">Cerrar incidente</button>
-    </div>
-    <div class="action-row">
-      <button class="btn btn-ghost" data-apoyo="ambulancia">Solicitar ambulancia</button>
-      <button class="btn btn-ghost" data-apoyo="bomberos">Solicitar bomberos</button>
-      <button class="btn btn-ghost" data-apoyo="policia">Solicitar policia</button>
-    </div>
-  </section>
+    <main class="dt-map-wrap">
+      <div id="mapa-flota" class="dt-map"></div>
+    </main>
 
-  <section class="panel chat">
-    <h2>Chat Operativo</h2>
-    <div id="chat-mensajes" class="chat-box"></div>
-    <form id="chat-form" class="chat-form">
-      <input id="chat-input" type="text" placeholder="Pregunta sobre la flota o eventos..." required />
-      <button type="submit" class="btn btn-primary">Enviar</button>
-    </form>
-  </section>
+    <aside class="dt-detail">
+      <section class="panel">
+        <h2>Detalle de unidad</h2>
+        <div id="detalle-unidad" class="details-box">
+          <p>Selecciona una unidad para ver detalles.</p>
+        </div>
+      </section>
+      <section class="panel chat">
+        <h2>Asistente NLP</h2>
+        <div id="chat-mensajes" class="chat-box"></div>
+        <form id="chat-form" class="chat-form">
+          <input id="chat-input" type="text" placeholder="Pregunta sobre la flota o eventos..." required />
+          <button type="submit" class="btn btn-primary">Enviar</button>
+        </form>
+      </section>
+    </aside>
+  </div>
 </div>
 {% endblock %}

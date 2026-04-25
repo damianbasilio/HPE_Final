@@ -23,7 +23,7 @@ from config import (
     INTERVALO_TELEMETRIA,
     PUERTO_SERVIDOR,
     TEAM_ID,
-    TIEMPO_SESION
+    TIEMPO_SESION,
 )
 from entorno import configurar_bus, obtener_contexto_entorno_completo
 from flota import FleetManager
@@ -31,6 +31,11 @@ from ia import responder_chat
 from inventario_aruba import InventarioAruba
 from kafka_bus import KafkaBus
 from socketio_server import inicializar_socketio
+from simulaciones import GestorSimulaciones
+
+# ----------------------------------------------------------------------
+# Logging y configuracion Flask
+# ----------------------------------------------------------------------
 
 nivel_log = logging.DEBUG if os.getenv('FLASK_DEBUG', 'false').lower() == 'true' else logging.INFO
 logging.basicConfig(
@@ -53,7 +58,8 @@ Session(app)
 
 @app.after_request
 def comprimir_respuesta(respuesta):
-    if respuesta.content_type and any(ct in respuesta.content_type for ct in ['text/', 'application/json', 'application/javascript']):
+    if respuesta.content_type and any(ct in respuesta.content_type for ct in
+                                      ['text/', 'application/json', 'application/javascript']):
         if 'gzip' in request.headers.get('Accept-Encoding', ''):
             if respuesta.content_length is None or respuesta.content_length > 500:
                 try:
@@ -76,18 +82,23 @@ def comprimir_respuesta(respuesta):
     return respuesta
 
 
+# ----------------------------------------------------------------------
+# Bootstrap de servicios singleton
+# ----------------------------------------------------------------------
+
 fleet = FleetManager()
 inventario = InventarioAruba()
 bus = KafkaBus()
 configurar_bus(bus)
 
 socketio = inicializar_socketio(app, fleet)
+gestor_simulaciones = GestorSimulaciones(fleet, bus)
 
 
 def obtener_factor_entorno() -> float:
     contexto = obtener_contexto_entorno_completo() or {}
-    clima = contexto.get('clima', {})
-    return clima.get('condicion', {}).get('factor_velocidad', 1.0)
+    clima = contexto.get('clima', {}) or {}
+    return float(clima.get('condicion', {}).get('factor_velocidad', 1.0) or 1.0)
 
 
 def bucle_flotas():
@@ -106,44 +117,55 @@ def bucle_telemetria():
             time.sleep(2)
 
 
-def construir_telemetria(veh):
-    gps = veh.gps.obtener_coordenadas_ligero()
-    incidente = veh.incidente
-    return {
+def construir_telemetria(veh) -> dict:
+    estado = veh.obtener_estado()
+    gps = estado.get('gps') or {}
+    incidente = fleet._incidente_actual(veh.id)  # noqa: SLF001
+    costes = estado.get('costes') or {}
+
+    payload = {
         "schema_version": "1.0.0",
         "message_type": "fleet_telemetry",
         "team_id": TEAM_ID,
         "sent_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         "vehicle": {
             "vehicle_id": veh.id,
-            "vehicle_type": veh.tipo,
-            "unit_name": veh.nombre
+            "vehicle_type": veh.TIPO,
+            "unit_name": veh.metadatos.get('nombre', veh.id),
+            "propulsion": veh.propulsion,
         },
         "telemetry": {
             "position": {"lat": gps.get('latitud'), "lon": gps.get('longitud')},
-            "speed": {"value": veh.velocidad, "unit": "kmh"},
-            "heading": None
+            "speed": {"value": estado.get('velocidad'), "unit": "kmh"},
+            "fuel_pct": estado.get('combustible'),
+            "engine_temp_c": estado.get('temperatura_motor'),
+            "factor_entorno": estado.get('factor_entorno'),
         },
         "operational_status": {
-            "state": veh.estado_servicio,
-            "availability": veh.disponibilidad,
-            "priority": veh.prioridad
+            "scenario": estado.get('escenario', {}).get('activo'),
+            "en_route": estado.get('escenario', {}).get('en_camino'),
+            "on_scene": estado.get('escenario', {}).get('en_escena'),
+            "eta_seg": estado.get('escenario', {}).get('eta_seg'),
         },
         "incident": {
             "incident_id": incidente.get('incident_id'),
             "incident_type": incidente.get('incident_type'),
-            "incident_status": incidente.get('incident_status')
+            "incident_status": incidente.get('incident_status'),
+            "severity": incidente.get('severity'),
         } if incidente else None,
         "costs": {
-            "estimated_operational_cost": round(veh.costos.get('acumulado', 0.0), 2),
-            "currency": "EUR"
+            "coste_total_eur": costes.get('coste_total_eur', 0.0),
+            "coste_intervencion_eur": costes.get('coste_intervencion_eur', 0.0),
+            "intervenciones_realizadas": costes.get('intervenciones_realizadas', 0),
+            "currency": "EUR",
         },
-        "specialty_data": veh.especialidad,
+        "specialty_data": estado.get('especializado', {}),
         "metadata": {
             "trace_id": str(uuid.uuid4()),
-            "producer": "digital-twin-backend"
-        }
+            "producer": "digital-twin-backend",
+        },
     }
+    return payload
 
 
 bus.iniciar(on_event=fleet.manejar_evento)
@@ -152,12 +174,17 @@ threading.Thread(target=bucle_flotas, daemon=True).start()
 threading.Thread(target=bucle_telemetria, daemon=True).start()
 
 
+# ----------------------------------------------------------------------
+# Autenticacion
+# ----------------------------------------------------------------------
+
 @app.before_request
 def proteger_vistas():
     public_endpoints = {
         'health', 'openapi', 'vehicles_status', 'list_vehicles', 'get_vehicle',
-        'ask_fleet', 'weather_stations', 'weather_reading', 'index', 'landing',
-        'login', 'static', 'ciudadano'
+        'list_incidents', 'list_simulations', 'sim_replay', 'sim_state', 'sim_pause',
+        'sim_speed', 'ask_fleet', 'weather_stations', 'weather_reading', 'index',
+        'login', 'static', 'ciudadano', 'api_contexto'
     }
     if request.endpoint in public_endpoints or request.path.startswith('/static/'):
         return
@@ -178,22 +205,20 @@ def login():
         contrasena = request.form.get('contrasena', '').strip()
 
         if not usuario or not contrasena:
-            return render_template('login.html', error='Debe ingresar usuario y contraseña')
+            return render_template('login.html', error='Debe ingresar usuario y contrasena')
 
         datos_usuario = autenticar_usuario(usuario, contrasena)
         if datos_usuario:
             registrar_sesion(datos_usuario)
-            session['rol'] = datos_usuario.get('rol', 'operador')
+            rol = datos_usuario.get('rol', 'operador')
+            session['rol'] = rol
             session.modified = True
 
-            if datos_usuario.get('rol') == 'operador':
-                veh_id = fleet.asignar_vehiculo(datos_usuario['usuario'], datos_usuario.get('tipo_vehiculo'))
-                session['vehiculo_id'] = veh_id
+            if rol == 'operador':
                 return redirect(url_for('operador'))
-
             return redirect(url_for('visualizador'))
 
-        return render_template('login.html', error='Usuario o contraseña incorrectos')
+        return render_template('login.html', error='Usuario o contrasena incorrectos')
 
     if session.get('autenticado'):
         if session.get('rol') == 'operador':
@@ -212,9 +237,7 @@ def logout():
 @app.route('/operador')
 def operador():
     usuario = obtener_usuario_actual()
-    veh_id = session.get('vehiculo_id')
-    veh = fleet.obtener_vehiculo(veh_id) if veh_id else None
-    return render_template('simulador.html', usuario=usuario, vehiculo=veh.obtener_estado() if veh else {})
+    return render_template('simulador.html', usuario=usuario)
 
 
 @app.route('/visualizador')
@@ -228,34 +251,59 @@ def ciudadano():
     return render_template('ciudadano.html')
 
 
+# ----------------------------------------------------------------------
+# Health & OpenAPI
+# ----------------------------------------------------------------------
+
 @app.route('/health')
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({
+        "status": "ok",
+        "team_id": TEAM_ID,
+        "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        "fleet_size": len(fleet.obtener_todos()),
+        "active_simulations": len(gestor_simulaciones.listar()),
+    })
 
 
 @app.route('/openapi.yaml')
 def openapi():
-    ruta = os.path.join(os.path.dirname(__file__), 'apis', 'aruba-island-inventory.json')
+    ruta = os.path.join(os.path.dirname(__file__), 'apis', 'team-api.yaml')
+    if not os.path.exists(ruta):
+        return Response("OpenAPI spec no encontrada", status=404, mimetype='text/plain')
     with open(ruta, 'r', encoding='utf-8') as f:
         contenido = f.read()
-    return Response(contenido, mimetype='text/plain')
+    return Response(contenido, mimetype='application/yaml')
 
+
+# ----------------------------------------------------------------------
+# Vehiculos / Flota
+# ----------------------------------------------------------------------
 
 @app.route('/vehicles/status')
 def vehicles_status():
-    vehiculos = [v.obtener_estado() for v in fleet.obtener_todos().values()]
-    activos = sum(1 for v in vehiculos if v.get('estado_servicio') != 'disponible')
+    vehiculos = fleet.estado_resumen()
+    activos = sum(1 for v in vehiculos
+                  if v.get('escenario', {}).get('en_progreso'))
+    coste_total = sum(v.get('costes', {}).get('coste_total_eur', 0.0)
+                      for v in vehiculos)
+    por_tipo = {}
+    for v in vehiculos:
+        por_tipo[v['tipo']] = por_tipo.get(v['tipo'], 0) + 1
+
     return jsonify({
         "total": len(vehiculos),
         "activos": activos,
-        "vehiculos": vehiculos
+        "coste_total_eur": round(coste_total, 2),
+        "por_tipo": por_tipo,
+        "vehiculos": vehiculos,
     })
 
 
 @app.route('/vehicles')
 def list_vehicles():
     tipo = request.args.get('type')
-    vehiculos = [v.obtener_estado() for v in fleet.obtener_todos().values()]
+    vehiculos = fleet.estado_resumen()
     if tipo:
         vehiculos = [v for v in vehiculos if v.get('tipo') == tipo]
     return jsonify({"vehicles": vehiculos, "total": len(vehiculos)})
@@ -266,8 +314,80 @@ def get_vehicle(vehicle_id):
     veh = fleet.obtener_vehiculo(vehicle_id)
     if not veh:
         return jsonify({"error": "Vehiculo no encontrado"}), 404
-    return jsonify(veh.obtener_estado())
+    estado = veh.obtener_estado()
+    estado['nombre'] = veh.metadatos.get('nombre', veh.id)
+    estado['incidente'] = fleet._incidente_actual(veh.id)  # noqa: SLF001
+    return jsonify(estado)
 
+
+# ----------------------------------------------------------------------
+# Incidentes
+# ----------------------------------------------------------------------
+
+@app.route('/incidents')
+def list_incidents():
+    incidentes = fleet.listado_incidentes()
+    estado = request.args.get('status')
+    if estado:
+        incidentes = [i for i in incidentes if i.get('status') == estado]
+    return jsonify({"total": len(incidentes), "incidents": incidentes})
+
+
+# ----------------------------------------------------------------------
+# Simulaciones
+# ----------------------------------------------------------------------
+
+@app.route('/simulations')
+def list_simulations():
+    return jsonify({"simulations": gestor_simulaciones.listar()})
+
+
+@app.route('/simulations/replay', methods=['POST'])
+def sim_replay():
+    payload = request.get_json(silent=True) or {}
+    started_at = payload.get('started_at')
+    if not started_at:
+        return jsonify({"error": "Falta 'started_at' (ISO 8601)"}), 400
+    speed = float(payload.get('speed', 5))
+    topics = payload.get('topics') or ['aruba.weather', 'aruba.events']
+
+    try:
+        sim = gestor_simulaciones.iniciar_replay(started_at, speed=speed, topics=topics)
+        return jsonify(sim)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route('/simulations/<sim_id>/state')
+def sim_state(sim_id):
+    sim = gestor_simulaciones.estado(sim_id)
+    if not sim:
+        return jsonify({"error": "Simulacion no encontrada"}), 404
+    return jsonify(sim)
+
+
+@app.route('/simulations/<sim_id>/pause', methods=['POST'])
+def sim_pause(sim_id):
+    sim = gestor_simulaciones.alternar_pausa(sim_id)
+    if not sim:
+        return jsonify({"error": "Simulacion no encontrada"}), 404
+    return jsonify(sim)
+
+
+@app.route('/simulations/<sim_id>/speed', methods=['POST'])
+def sim_speed(sim_id):
+    payload = request.get_json(silent=True) or {}
+    if 'speed' not in payload:
+        return jsonify({"error": "Falta 'speed'"}), 400
+    sim = gestor_simulaciones.set_velocidad(sim_id, float(payload['speed']))
+    if not sim:
+        return jsonify({"error": "Simulacion no encontrada"}), 404
+    return jsonify(sim)
+
+
+# ----------------------------------------------------------------------
+# Clima e Inventario
+# ----------------------------------------------------------------------
 
 @app.route('/weather-stations')
 def weather_stations():
@@ -282,6 +402,10 @@ def weather_reading(station_id):
         return jsonify({"error": "Sin lectura disponible"}), 404
     return jsonify(lectura)
 
+
+# ----------------------------------------------------------------------
+# Chatbot NLP
+# ----------------------------------------------------------------------
 
 @app.route('/ask')
 def ask_fleet():
@@ -307,24 +431,31 @@ def api_contexto():
 
 def construir_contexto_chat() -> dict:
     contexto_entorno = obtener_contexto_entorno_completo() or {}
-    vehiculos = [v.obtener_estado() for v in fleet.obtener_todos().values()]
+    vehiculos = fleet.estado_resumen()
     flota_resumen = {
         "total": len(vehiculos),
-        "por_tipo": {
-            "policia": sum(1 for v in vehiculos if v.get('tipo') == 'policia'),
-            "ambulancia": sum(1 for v in vehiculos if v.get('tipo') == 'ambulancia'),
-            "bomberos": sum(1 for v in vehiculos if v.get('tipo') == 'bomberos'),
-            "dron": sum(1 for v in vehiculos if v.get('tipo') == 'dron')
-        }
+        "por_tipo": {},
+        "activos": sum(1 for v in vehiculos if v.get('escenario', {}).get('en_progreso')),
+        "coste_total_eur": round(sum(
+            v.get('costes', {}).get('coste_total_eur', 0.0) for v in vehiculos), 2),
     }
+    for v in vehiculos:
+        flota_resumen["por_tipo"][v['tipo']] = flota_resumen["por_tipo"].get(v['tipo'], 0) + 1
 
     return {
         "clima": contexto_entorno.get('clima'),
         "eventos": contexto_entorno.get('eventos', []),
         "alertas": contexto_entorno.get('alertas_entorno', []),
-        "flota": flota_resumen
+        "flota": flota_resumen,
+        "incidentes_activos": [i for i in fleet.listado_incidentes()
+                                if i.get('status') in ('en_route', 'on_scene', 'assigned')],
     }
 
 
+# ----------------------------------------------------------------------
+# Entrypoint
+# ----------------------------------------------------------------------
+
 if __name__ == '__main__':
-    socketio.run(app, debug=DEPURACION_FLASK, host=HOST_SERVIDOR, port=PUERTO_SERVIDOR)
+    socketio.run(app, debug=DEPURACION_FLASK, host=HOST_SERVIDOR, port=PUERTO_SERVIDOR,
+                 allow_unsafe_werkzeug=True)

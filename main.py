@@ -6,7 +6,6 @@ import logging
 import os
 import threading
 import time
-import uuid
 from datetime import datetime, timezone
 from io import BytesIO
 
@@ -153,8 +152,6 @@ def construir_telemetria(veh) -> dict:
     estado = veh.obtener_estado()
     gps = estado.get('gps') or {}
     incidente = fleet._incidente_actual(veh.id)
-    costes = estado.get('costes') or {}
-    esc = estado.get('escenario') or {}
 
     state, availability = _derivar_state_availability(estado)
     priority = None
@@ -164,7 +161,7 @@ def construir_telemetria(veh) -> dict:
     velocidad = float(estado.get('velocidad') or 0.0)
     heading = float(getattr(veh, 'heading', 0.0)) if velocidad > 0.5 else None
 
-    payload = {
+    return {
         "schema_version": "1.0.0",
         "message_type": "fleet_telemetry",
         "team_id": TEAM_ID,
@@ -190,31 +187,11 @@ def construir_telemetria(veh) -> dict:
             "availability": availability,
             "priority": priority,
         },
-        "incident": ({
-            "incident_id": incidente.get('incident_id'),
-            "incident_type": incidente.get('incident_type'),
-            "incident_status": incidente.get('incident_status'),
-            "severity": incidente.get('severity'),
-        } if incidente else None),
-        "costs": ({
-            "total_eur": round(float(costes.get('coste_total_eur') or 0.0), 2),
-            "intervention_eur": round(float(costes.get('coste_intervencion_eur') or 0.0), 2),
-            "interventions_done": int(costes.get('intervenciones_realizadas') or 0),
-            "currency": "EUR",
-        } if costes else None),
-        "specialty_data": estado.get('especializado') or {},
-        "metadata": {
-            "trace_id": str(uuid.uuid4()),
-            "producer": "digital-twin-backend",
-            "propulsion": veh.propulsion,
-            "scenario": esc.get('activo'),
-            "eta_seg": esc.get('eta_seg'),
-            "fuel_pct": estado.get('combustible'),
-            "engine_temp_c": estado.get('temperatura_motor'),
-            "factor_entorno": estado.get('factor_entorno'),
-        },
+        "incident": None,
+        "costs": None,
+        "specialty_data": {},
+        "metadata": None,
     }
-    return payload
 
 bus.iniciar(on_event=fleet.manejar_evento)
 
@@ -305,12 +282,10 @@ def _map_status_vehicle(estado: dict) -> str:
 
 def _map_vehicle(estado: dict) -> dict:
     gps = estado.get('gps') or {}
-    costes = estado.get('costes') or {}
     veh_id = estado.get('id')
     veh = fleet.obtener_vehiculo(veh_id) if veh_id else None
     callsign = estado.get('nombre') or (veh.metadatos.get('nombre') if veh else None)
     last_updated = estado.get('timestamp') or time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-    incidente = estado.get('incidente')
 
     return {
         "id": str(veh_id),
@@ -322,18 +297,7 @@ def _map_vehicle(estado: dict) -> dict:
         "callsign": callsign,
         "speed_kmh": float(estado.get('velocidad') or 0.0),
         "last_updated": last_updated,
-        "metadata": {
-            "propulsion": estado.get('propulsion'),
-            "scenario": (estado.get('escenario') or {}).get('activo'),
-            "eta_seg": (estado.get('escenario') or {}).get('eta_seg'),
-            "factor_entorno": estado.get('factor_entorno'),
-            "cost_total_eur": costes.get('coste_total_eur'),
-            "cost_intervention_eur": costes.get('coste_intervencion_eur'),
-            "interventions_done": costes.get('intervenciones_realizadas'),
-            "crew_size": costes.get('dotacion'),
-            "incident_id": (incidente or {}).get('incident_id') if incidente else None,
-            "incident_type": (incidente or {}).get('incident_type') if incidente else None,
-        },
+        "metadata": None,
     }
 
 @app.route('/health')
@@ -533,11 +497,11 @@ def get_vehicle(vehicle_id):
                 "loc": ["path", "vehicle_id"],
                 "msg": "Vehicle not found",
                 "type": "value_error.not_found",
+                "input": vehicle_id,
             }]
-        }), 404
+        }), 422
     estado = veh.obtener_estado()
     estado['nombre'] = veh.metadatos.get('nombre', veh.id)
-    estado['incidente'] = fleet._incidente_actual(veh.id)
     return jsonify(_map_vehicle(estado))
 
 @app.route('/incidents')
@@ -662,8 +626,9 @@ def weather_reading(station_id):
                 "loc": ["path", "station_id"],
                 "msg": "No reading available for station",
                 "type": "value_error.not_found",
+                "input": station_id,
             }]
-        }), 404
+        }), 422
     return jsonify(_map_reading(lectura))
 
 @app.route('/ask')
@@ -696,7 +661,7 @@ def ask_fleet():
             "answer": "Asistente no disponible en este momento.",
             "confidence": 0.0,
             "data": None,
-        }), 500
+        })
 
 @app.route('/api/context')
 def api_contexto():

@@ -1,0 +1,241 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "Aruba Weather and Events Infrastructure",
+    "version": "1.1.0",
+    "description": "Event-driven API for ingesting and consuming real-time weather readings and emergency events across Aruba."
+  },
+  "servers": {
+    "production": {
+      "host": "10.10.48.30:9092",
+      "protocol": "kafka",
+      "description": "Production Kafka broker."
+    }
+  },
+  "channels": {
+    "weatherTopic": {
+      "address": "aruba.weather",
+      "description": "Topic for continuous weather station readings.",
+      "messages": {
+        "weatherReading": {
+          "$ref": "#/components/messages/WeatherReading"
+        }
+      }
+    },
+    "eventsTopic": {
+      "address": "aruba.events",
+      "description": "Topic for critical events and emergencies.",
+      "messages": {
+        "arubaEvent": {
+          "$ref": "#/components/messages/ArubaEvent"
+        }
+      }
+    }
+  },
+  "operations": {
+    "consumeWeatherReadings": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/weatherTopic"
+      },
+      "summary": "Subscribe to incoming weather readings."
+    },
+    "consumeEvents": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/eventsTopic"
+      },
+      "summary": "Subscribe to real-time emergency and traffic events."
+    }
+  },
+  "components": {
+    "messages": {
+      "WeatherReading": {
+        "name": "WeatherReading",
+        "title": "Weather Reading",
+        "summary": "Weather reading message published to aruba.weather Kafka topic",
+        "payload": {
+          "schemaFormat": "application/schema+json;version=2020-12",
+          "type": "object",
+          "required": [
+            "id",
+            "station_id",
+            "timestamp",
+            "temperature_c",
+            "humidity_pct",
+            "wind_speed_kmh",
+            "wind_direction_deg",
+            "pressure_hpa",
+            "precipitation_mm",
+            "visibility_km",
+            "uv_index"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "station_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "temperature_c": {
+              "type": "number",
+              "minimum": -50,
+              "maximum": 60
+            },
+            "humidity_pct": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "wind_speed_kmh": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 500
+            },
+            "wind_direction_deg": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 360
+            },
+            "pressure_hpa": {
+              "type": "number",
+              "minimum": 800,
+              "maximum": 1100
+            },
+            "precipitation_mm": {
+              "type": "number",
+              "minimum": 0
+            },
+            "visibility_km": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "uv_index": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 15
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "ArubaEvent": {
+        "name": "ArubaEvent",
+        "title": "Event",
+        "summary": "Event message published to aruba.events Kafka topic",
+        "payload": {
+          "$id": "aruba.event.v1",
+          "schemaFormat": "application/schema+json;version=2020-12",
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "severity",
+            "title",
+            "description",
+            "latitude",
+            "longitude",
+            "started_at"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier for this event"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "storm",
+                "fire",
+                "flood",
+                "accident",
+                "lane_closure",
+                "power_outage",
+                "medical_emergency",
+                "hazmat_spill",
+                "construction",
+                "public_event"
+              ]
+            },
+            "severity": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ]
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": {
+              "type": "string"
+            },
+            "latitude": {
+              "type": "number",
+              "minimum": 12.4,
+              "maximum": 12.7
+            },
+            "longitude": {
+              "type": "number",
+              "minimum": -70.1,
+              "maximum": -69.8
+            },
+            "radius_m": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Affected radius in meters (nullable)"
+            },
+            "road_id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            },
+            "started_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "resolved_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "geometry": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "description": "Optional road geometry for line-type events. Array of [lat, lon] pairs.",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

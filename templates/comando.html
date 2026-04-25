@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Visualizador — Aruba Gemelo Digital{% endblock %}
+
+{% block head_extra %}
+  <script src="/socket.io/socket.io.js" defer></script>
+  <script src="{{ url_for('static', filename='js/mapa_aruba.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/visualizador.js') }}" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid viewer">
+  <section class="panel map">
+    <h2>Vista Global Aruba</h2>
+    <canvas id="mapa-visualizador" class="map-canvas"></canvas>
+  </section>
+  <section class="panel list">
+    <h2>Unidades activas</h2>
+    <div id="vehicle-list" class="vehicle-list"></div>
+  </section>
+  <section class="panel details">
+    <h2>Detalle de unidad</h2>
+    <div id="details-content" class="details-box">
+      <p>Selecciona una unidad para ver detalles.</p>
+    </div>
+  </section>
+</div>
+{% endblock %}

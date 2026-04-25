@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Gemelo Digital — 52Sec{% endblock %}</title>
+  <!-- CSS crítico inline para primer render rápido -->
+  <style>
+    :root{--bg-base:#0a0a0a;--bg-surface:#0f0f0f;--text-primary:#f2f4f3;--font-sans:'Sora',system-ui,sans-serif}
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{height:100%;font-family:var(--font-sans);background:var(--bg-base);color:var(--text-primary)}
+    .loading-skeleton{background:linear-gradient(90deg,#111 25%,#1a1a1a 50%,#111 75%);background-size:200% 100%;animation:shimmer 1.5s infinite}
+    @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  </style>
+  <!-- Sin recursos externos: tipografia local -->
+  <!-- Estilos (carga normal para evitar FOUC) -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=6">
+  {% block head_extra %}{% endblock %}
+</head>
+<body>
+
+  <!-- Navegacion principal -->
+  <nav id="navbar">
+    <div class="container">
+
+      <!-- Logotipo -->
+      <a href="/" class="logo" style="text-decoration:none;">52Sec</a>
+
+      <!-- Enlaces de navegación -->
+      <ul class="nav-links">
+        <li>
+          <a href="{{ url_for('operador') }}"
+             class="{% if request.endpoint == 'operador' %}active{% endif %}">
+            Operador
+          </a>
+        </li>
+        <li>
+          <a href="{{ url_for('visualizador') }}"
+             class="{% if request.endpoint == 'visualizador' %}active{% endif %}">
+            Visualizador
+          </a>
+        </li>
+        <li>
+          <a href="{{ url_for('ciudadano') }}"
+             class="{% if request.endpoint == 'ciudadano' %}active{% endif %}">
+            Ciudadano
+          </a>
+        </li>
+      </ul>
+
+      <!-- Lado derecho con usuario -->
+      <div style="display:flex;align-items:center;gap:12px;">
+        {% if usuario %}
+        <div id="ws-status-dot" class="connection-dot disconnected" style="width:8px;height:8px;" title="Conectando..."></div>
+        <div class="user-info-wrapper">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:2px;text-align:center;">
+            <span style="font-family:var(--font-mono);font-size:0.76rem;color:var(--text-primary);letter-spacing:0.02em;">{{ usuario.nombre }}</span>
+            <span class="badge badge-muted" style="font-size:0.6rem;padding:1px 8px;">{{ usuario.rol }}</span>
+          </div>
+          <a href="{{ url_for('logout') }}" class="logout-btn">Salir</a>
+        </div>
+        {% endif %}
+      </div>
+
+    </div>
+  </nav>
+
+
+  <!-- Contenido principal -->
+  <main class="main-content">
+    <div class="container">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <!-- Pie de pagina -->
+  <footer>
+    <div class="container" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+      <div class="logo" style="font-size:0.95rem;">52Sec</div>
+      <div style="text-align:right;">
+        <p>© 2026 52Sec. Todos los derechos reservados.</p>
+        <p>No afiliados a la Benemérita Universidad Autónoma de Puebla.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const navbar = document.getElementById('navbar');
+    window.addEventListener('scroll', () => {
+      navbar.classList.toggle('scrolled', window.pageYOffset > 50);
+    });
+  </script>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

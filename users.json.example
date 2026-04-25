@@ -1,0 +1,14 @@
+[
+  {
+    "username": "operador1",
+    "password": "cambiar_contrasena",
+    "rol": "operador",
+    "nombre": "Operador"
+  },
+  {
+    "username": "dispatch",
+    "password": "cambiar_contrasena",
+    "rol": "despachador",
+    "nombre": "Controlador"
+  }
+]

@@ -1,0 +1,1395 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Aruba Island Inventory",
+    "description": "Public inventory of weather stations, road segments, and points of interest for Aruba island.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://10.10.48.30:8080"
+    }
+  ],
+  "paths": {
+    "/api/v1/stations": {
+      "get": {
+        "tags": [
+          "stations"
+        ],
+        "summary": "List Stations",
+        "description": "List weather stations with optional district and proximity filters.",
+        "operationId": "list_stations_api_v1_stations_get",
+        "parameters": [
+          {
+            "name": "district",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by district name",
+              "title": "District"
+            },
+            "description": "Filter by district name"
+          },
+          {
+            "name": "near_lat",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 90,
+                  "minimum": -90
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Center latitude for proximity filter",
+              "title": "Near Lat"
+            },
+            "description": "Center latitude for proximity filter"
+          },
+          {
+            "name": "near_lon",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 180,
+                  "minimum": -180
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Center longitude for proximity filter",
+              "title": "Near Lon"
+            },
+            "description": "Center longitude for proximity filter"
+          },
+          {
+            "name": "radius_km",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 100,
+              "exclusiveMinimum": 0,
+              "description": "Search radius in km (requires near_lat + near_lon)",
+              "default": 5,
+              "title": "Radius Km"
+            },
+            "description": "Search radius in km (requires near_lat + near_lon)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "Max items per page",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Max items per page"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of items to skip",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of items to skip"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_WeatherStationOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/stations/{station_id}": {
+      "get": {
+        "tags": [
+          "stations"
+        ],
+        "summary": "Get Station",
+        "operationId": "get_station_api_v1_stations__station_id__get",
+        "parameters": [
+          {
+            "name": "station_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Station Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeatherStationOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pois/types": {
+      "get": {
+        "tags": [
+          "pois"
+        ],
+        "summary": "List Poi Types",
+        "description": "Enumerate all available POI category values from the database.",
+        "operationId": "list_poi_types_api_v1_pois_types_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pois": {
+      "get": {
+        "tags": [
+          "pois"
+        ],
+        "summary": "List Pois",
+        "description": "List points of interest.\n\nSupports filtering by **type** (accepts comma-separated list), **search** (name, case-insensitive), \nand proximity (supply both `near_lat` and `near_lon` along with `radius_km`).\nPagination is driven by `limit` / `offset`.",
+        "operationId": "list_pois_api_v1_pois_get",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by POI type (comma-separated for multiple)",
+              "title": "Type"
+            },
+            "description": "Filter by POI type (comma-separated for multiple)"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive name search",
+              "title": "Search"
+            },
+            "description": "Case-insensitive name search"
+          },
+          {
+            "name": "near_lat",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 90,
+                  "minimum": -90
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Center latitude for proximity filter",
+              "title": "Near Lat"
+            },
+            "description": "Center latitude for proximity filter"
+          },
+          {
+            "name": "near_lon",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 180,
+                  "minimum": -180
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Center longitude for proximity filter",
+              "title": "Near Lon"
+            },
+            "description": "Center longitude for proximity filter"
+          },
+          {
+            "name": "radius_km",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 100,
+              "exclusiveMinimum": 0,
+              "description": "Search radius in km (requires near_lat + near_lon)",
+              "default": 5,
+              "title": "Radius Km"
+            },
+            "description": "Search radius in km (requires near_lat + near_lon)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "description": "Max items per page",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Max items per page"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of items to skip",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of items to skip"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_POIOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pois/{poi_id}": {
+      "get": {
+        "tags": [
+          "pois"
+        ],
+        "summary": "Get Poi",
+        "description": "Get a single point of interest by ID.",
+        "operationId": "get_poi_api_v1_pois__poi_id__get",
+        "parameters": [
+          {
+            "name": "poi_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Poi Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/POIOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/roads/types": {
+      "get": {
+        "tags": [
+          "roads"
+        ],
+        "summary": "List Road Types",
+        "description": "Enumerate distinct road types present in the dataset.",
+        "operationId": "list_road_types_api_v1_roads_types_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/roads": {
+      "get": {
+        "tags": [
+          "roads"
+        ],
+        "summary": "List Roads",
+        "description": "List road segments.\n\nSupports filtering by **road_type**, **search** (name, case-insensitive), and proximity\n(supply both `near_lat` and `near_lon` along with `radius_km`).\nA road is considered nearby when either its start or end point falls within the bounding box.\nPagination is driven by `limit` / `offset`.",
+        "operationId": "list_roads_api_v1_roads_get",
+        "parameters": [
+          {
+            "name": "road_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by road type (e.g. highway, primary, residential)",
+              "title": "Road Type"
+            },
+            "description": "Filter by road type (e.g. highway, primary, residential)"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive name search",
+              "title": "Search"
+            },
+            "description": "Case-insensitive name search"
+          },
+          {
+            "name": "near_lat",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 90,
+                  "minimum": -90
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Center latitude for proximity filter",
+              "title": "Near Lat"
+            },
+            "description": "Center latitude for proximity filter"
+          },
+          {
+            "name": "near_lon",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 180,
+                  "minimum": -180
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Center longitude for proximity filter",
+              "title": "Near Lon"
+            },
+            "description": "Center longitude for proximity filter"
+          },
+          {
+            "name": "radius_km",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 100,
+              "exclusiveMinimum": 0,
+              "description": "Search radius in km (requires near_lat + near_lon)",
+              "default": 5,
+              "title": "Radius Km"
+            },
+            "description": "Search radius in km (requires near_lat + near_lon)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "Max items per page",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Max items per page"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of items to skip",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of items to skip"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RoadSegmentOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/roads/{road_id}": {
+      "get": {
+        "tags": [
+          "roads"
+        ],
+        "summary": "Get Road",
+        "description": "Get a single road segment by ID.",
+        "operationId": "get_road_api_v1_roads__road_id__get",
+        "parameters": [
+          {
+            "name": "road_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Road Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoadSegmentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ComparisonStats": {
+        "properties": {
+          "kafka_weather_messages": {
+            "type": "integer",
+            "title": "Kafka Weather Messages"
+          },
+          "kafka_events_messages": {
+            "type": "integer",
+            "title": "Kafka Events Messages"
+          },
+          "db_weather_total": {
+            "type": "integer",
+            "title": "Db Weather Total"
+          },
+          "db_weather_published": {
+            "type": "integer",
+            "title": "Db Weather Published"
+          },
+          "db_weather_pending": {
+            "type": "integer",
+            "title": "Db Weather Pending"
+          },
+          "db_events_total": {
+            "type": "integer",
+            "title": "Db Events Total"
+          },
+          "db_events_published": {
+            "type": "integer",
+            "title": "Db Events Published"
+          },
+          "db_events_pending": {
+            "type": "integer",
+            "title": "Db Events Pending"
+          },
+          "weather_synced": {
+            "type": "boolean",
+            "title": "Weather Synced"
+          },
+          "events_synced": {
+            "type": "boolean",
+            "title": "Events Synced"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kafka_weather_messages",
+          "kafka_events_messages",
+          "db_weather_total",
+          "db_weather_published",
+          "db_weather_pending",
+          "db_events_total",
+          "db_events_published",
+          "db_events_pending",
+          "weather_synced",
+          "events_synced"
+        ],
+        "title": "ComparisonStats",
+        "description": "Comparison between Kafka and Database."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "KafkaMessageOut": {
+        "properties": {
+          "topic": {
+            "type": "string",
+            "title": "Topic"
+          },
+          "partition": {
+            "type": "integer",
+            "title": "Partition"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "value": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Value"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "payload_timestamp": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload Timestamp"
+          },
+          "timestamp_type": {
+            "type": "string",
+            "title": "Timestamp Type"
+          },
+          "schema_valid": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Valid"
+          },
+          "schema_errors": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Errors"
+          },
+          "timing_delay_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timing Delay Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "topic",
+          "partition",
+          "offset",
+          "key",
+          "value",
+          "timestamp",
+          "timestamp_type"
+        ],
+        "title": "KafkaMessageOut"
+      },
+      "MessagesResponse": {
+        "properties": {
+          "topic": {
+            "type": "string",
+            "title": "Topic"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/KafkaMessageOut"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "type": "object",
+        "required": [
+          "topic",
+          "messages",
+          "count",
+          "has_more"
+        ],
+        "title": "MessagesResponse"
+      },
+      "POIOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "address": {
+            "type": "string",
+            "title": "Address"
+          },
+          "capacity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "type",
+          "latitude",
+          "longitude",
+          "address",
+          "capacity"
+        ],
+        "title": "POIOut"
+      },
+      "Page_POIOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/POIOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "Page[POIOut]"
+      },
+      "Page_RoadSegmentOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoadSegmentOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "Page[RoadSegmentOut]"
+      },
+      "Page_WeatherStationOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WeatherStationOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "Page[WeatherStationOut]"
+      },
+      "ProducerConfigOut": {
+        "properties": {
+          "batch_size": {
+            "type": "integer",
+            "title": "Batch Size"
+          },
+          "interval_seconds": {
+            "type": "integer",
+            "title": "Interval Seconds"
+          },
+          "weather_topic": {
+            "type": "string",
+            "title": "Weather Topic"
+          },
+          "events_topic": {
+            "type": "string",
+            "title": "Events Topic"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_size",
+          "interval_seconds",
+          "weather_topic",
+          "events_topic"
+        ],
+        "title": "ProducerConfigOut"
+      },
+      "PurgeResult": {
+        "properties": {
+          "results": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Results"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results",
+          "message"
+        ],
+        "title": "PurgeResult",
+        "description": "Result of purging Kafka topics."
+      },
+      "RoadSegmentOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "road_type": {
+            "type": "string",
+            "title": "Road Type"
+          },
+          "start_lat": {
+            "type": "number",
+            "title": "Start Lat"
+          },
+          "start_lon": {
+            "type": "number",
+            "title": "Start Lon"
+          },
+          "end_lat": {
+            "type": "number",
+            "title": "End Lat"
+          },
+          "end_lon": {
+            "type": "number",
+            "title": "End Lon"
+          },
+          "lanes": {
+            "type": "integer",
+            "title": "Lanes"
+          },
+          "speed_limit_kmh": {
+            "type": "integer",
+            "title": "Speed Limit Kmh"
+          },
+          "length_m": {
+            "type": "number",
+            "title": "Length M"
+          },
+          "geometry": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geometry"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "road_type",
+          "start_lat",
+          "start_lon",
+          "end_lat",
+          "end_lon",
+          "lanes",
+          "speed_limit_kmh",
+          "length_m"
+        ],
+        "title": "RoadSegmentOut"
+      },
+      "SchemaContentResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "content": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "content"
+        ],
+        "title": "SchemaContentResponse"
+      },
+      "SchemaInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "full_name",
+          "title",
+          "description"
+        ],
+        "title": "SchemaInfo"
+      },
+      "SchemasResponse": {
+        "properties": {
+          "schemas": {
+            "items": {
+              "$ref": "#/components/schemas/SchemaInfo"
+            },
+            "type": "array",
+            "title": "Schemas"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schemas"
+        ],
+        "title": "SchemasResponse"
+      },
+      "TopicStatsOut": {
+        "properties": {
+          "topic": {
+            "type": "string",
+            "title": "Topic"
+          },
+          "partitions": {
+            "type": "integer",
+            "title": "Partitions"
+          },
+          "total_messages": {
+            "type": "integer",
+            "title": "Total Messages"
+          },
+          "earliest_offset": {
+            "type": "integer",
+            "title": "Earliest Offset"
+          },
+          "latest_offset": {
+            "type": "integer",
+            "title": "Latest Offset"
+          },
+          "last_timestamp": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "topic",
+          "partitions",
+          "total_messages",
+          "earliest_offset",
+          "latest_offset",
+          "last_timestamp"
+        ],
+        "title": "TopicStatsOut"
+      },
+      "TopicsResponse": {
+        "properties": {
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/TopicStatsOut"
+            },
+            "type": "array",
+            "title": "Topics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "topics"
+        ],
+        "title": "TopicsResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ValidationReport": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "valid": {
+            "type": "integer",
+            "title": "Valid"
+          },
+          "invalid": {
+            "type": "integer",
+            "title": "Invalid"
+          },
+          "timing_warnings": {
+            "type": "integer",
+            "title": "Timing Warnings"
+          },
+          "issues": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "valid",
+          "invalid",
+          "timing_warnings",
+          "issues"
+        ],
+        "title": "ValidationReport"
+      },
+      "WeatherStationOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "elevation_m": {
+            "type": "number",
+            "title": "Elevation M"
+          },
+          "district": {
+            "type": "string",
+            "title": "District"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "code",
+          "latitude",
+          "longitude",
+          "elevation_m",
+          "district",
+          "is_active"
+        ],
+        "title": "WeatherStationOut"
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  }
+}

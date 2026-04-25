@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from config import INTERVALO_ACTUALIZACION
-from rutas import generar_ruta, obtener_distancia_total_ruta
+from rutas import generar_ruta, obtener_distancia_total_ruta, snap_a_carretera
 from vehiculo_factory import crear_vehiculo
 from vehiculo_base import VehiculoBase
 
@@ -376,8 +376,15 @@ class FleetManager:
         return veh.en_camino or veh.en_escena or veh.reabasteciendo
 
     def _activar_intervencion(self, unidad: VehiculoBase, incidente: dict) -> str:
-        destino = (incidente['lat'], incidente['lon'])
+        # Vehicle is already on a road (spawned on road network).
+        # Snap the incident destination to the nearest road node using the
+        # graph (fast, no HTTP) so the routing engine gets a reachable target.
         origen = (unidad.gps.latitud, unidad.gps.longitud)
+        destino_raw = (incidente['lat'], incidente['lon'])
+        try:
+            destino = snap_a_carretera(destino_raw[0], destino_raw[1])
+        except Exception:
+            destino = destino_raw
 
         ruta = []
         try:

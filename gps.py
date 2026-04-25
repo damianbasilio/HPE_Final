@@ -4,18 +4,31 @@ import random
 import math
 from config import ARUBA_LANDMARKS, CENTRO_ARUBA
 
-def _spawn_landmark():
+
+def _spawn_en_carretera():
+    """Return an initial position on the road network.
+
+    Imports rutas lazily to avoid circular imports at module load time.
+    Falls back to a random landmark (no jitter) if the road graph is not
+    available yet.
+    """
+    try:
+        from rutas import spawn_en_carretera
+        return spawn_en_carretera()
+    except Exception:
+        pass
+    # Fallback: landmark without jitter
     if not ARUBA_LANDMARKS:
         return CENTRO_ARUBA
     nombre, lat, lon = random.choice(ARUBA_LANDMARKS)
-    return (lat + random.uniform(-0.002, 0.002),
-            lon + random.uniform(-0.002, 0.002))
+    return (lat, lon)
+
 
 class SimuladorGPS:
 
     def __init__(self, lat=None, lon=None):
         if lat is None or lon is None:
-            spawn = _spawn_landmark()
+            spawn = _spawn_en_carretera()
             self.latitud = lat if lat is not None else spawn[0]
             self.longitud = lon if lon is not None else spawn[1]
         else:

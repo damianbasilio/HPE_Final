@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 
 from config import ARUBA_BOUNDS, ARUBA_LANDMARKS, CENTRO_ARUBA
 from inventario_aruba import InventarioAruba
-from osrm_client import osrm_disponible, osrm_route
+from osrm_client import osrm_route
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +89,24 @@ def _buscar_nodo_cercano(punto: Tuple[float, float], nodos: Dict) -> Optional[Tu
 
     return mejor
 
+
+def snap_a_carretera(lat: float, lon: float) -> Tuple[float, float]:
+    """Snap an arbitrary coordinate to the nearest node on the road network.
+
+    Uses only the local inventory road graph (no HTTP call) so it is safe
+    to call from hot paths while locks are held. The OSRM/Valhalla route
+    engines will further refine the snap when computing the full route.
+    Returns the original coordinate unchanged if the graph is not yet loaded.
+    """
+    try:
+        nodos, _ = _obtener_grafo()
+        nodo = _buscar_nodo_cercano((lat, lon), nodos)
+        if nodo:
+            return nodo
+    except Exception as exc:
+        logger.debug("[snap] Grafo nearest fallo: %s", exc)
+    return (lat, lon)
+
 def _dijkstra(adyacencia: Dict, origen: Tuple[float, float], destino: Tuple[float, float]) -> List[Tuple[float, float]]:
     distancias = {origen: 0.0}
     anteriores = {}
@@ -146,16 +164,33 @@ def generar_ruta(origen: Tuple[float, float], destino: Tuple[float, float]) -> L
     return puntos
 
 def punto_landmark_aleatorio() -> Tuple[float, float]:
+    """Random landmark without jitter (landmarks are already near roads)."""
     if not ARUBA_LANDMARKS:
         return CENTRO_ARUBA
     nombre, lat, lon = random.choice(ARUBA_LANDMARKS)
-    jitter_lat = random.uniform(-0.003, 0.003)
-    jitter_lon = random.uniform(-0.003, 0.003)
-    return (lat + jitter_lat, lon + jitter_lon)
+    return (lat, lon)
+
+
+def spawn_en_carretera() -> Tuple[float, float]:
+    """Return a position guaranteed to be on the Aruba road network.
+
+    Road graph nodes are intersections/endpoints from the inventory API,
+    so they are exact road coordinates. Falls back to landmarks if the
+    graph is not yet loaded.
+    """
+    try:
+        nodos, _ = _obtener_grafo()
+        if nodos:
+            return random.choice(list(nodos.values()))
+    except Exception as exc:
+        logger.warning("[spawn] No se pudo obtener nodo de carretera: %s", exc)
+    return punto_landmark_aleatorio()
+
 
 def generar_ruta_patrulla(origen: Optional[Tuple[float, float]] = None) -> List[List[float]]:
+    """Generate a multi-stop patrol route, always starting on a road node."""
     if not origen:
-        origen = punto_landmark_aleatorio()
+        origen = spawn_en_carretera()
 
     nodos, _ = _obtener_grafo()
     cantidad = random.randint(2, 4)
@@ -164,17 +199,28 @@ def generar_ruta_patrulla(origen: Optional[Tuple[float, float]] = None) -> List[
     if nodos:
         candidatos = list(nodos.values())
         random.shuffle(candidatos)
-        destinos = [tuple(c) for c in candidatos[:cantidad]]
-    else:
+        # Exclude the origin itself to avoid zero-length segments
+        destinos = [c for c in candidatos if c != origen][:cantidad]
+    if not destinos:
         destinos = [punto_landmark_aleatorio() for _ in range(cantidad)]
 
-    ruta_total: List[List[float]] = [list(origen)]
+    ruta_total: List[List[float]] = []
     actual = origen
     for destino in destinos:
         tramo = generar_ruta(actual, destino)
-        if tramo:
+        if not tramo or len(tramo) < 2:
+            continue
+        if not ruta_total:
+            # First segment: include the snapped start point (ruta[0]) as origin
+            ruta_total.extend(tramo)
+        else:
+            # Subsequent segments: skip duplicate connection point
             ruta_total.extend(tramo[1:])
-            actual = destino
+        # Use the actual snapped end of the route as next origin
+        actual = (tramo[-1][0], tramo[-1][1])
+
+    if not ruta_total:
+        ruta_total = [list(origen)]
 
     return ruta_total
 

@@ -161,7 +161,7 @@ threading.Thread(target=bucle_telemetria, daemon=True).start()
 @app.before_request
 def proteger_vistas():
     public_endpoints = {
-        'health', 'openapi', 'vehicles_status', 'list_vehicles', 'get_vehicle',
+        'health', 'health_kafka', 'openapi', 'vehicles_status', 'list_vehicles', 'get_vehicle',
         'list_incidents', 'list_simulations', 'sim_replay', 'sim_state', 'sim_pause',
         'sim_speed', 'ask_fleet', 'weather_stations', 'weather_reading', 'index',
         'login', 'static', 'ciudadano', 'api_contexto'
@@ -232,6 +232,22 @@ def health():
         "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         "fleet_size": len(fleet.obtener_todos()),
         "active_simulations": len(gestor_simulaciones.listar()),
+    })
+
+@app.route('/health/kafka')
+def health_kafka():
+    weather_cache = list(getattr(bus, '_weather_cache', []))
+    events_cache = list(getattr(bus, '_events_cache', []))
+    return jsonify({
+        "disponible": getattr(bus, 'disponible', False),
+        "producer": bus._producer is not None,
+        "consumer_weather": bus._weather_consumer is not None,
+        "consumer_events": bus._events_consumer is not None,
+        "weather_recibidos": len(weather_cache),
+        "events_recibidos": len(events_cache),
+        "ultimo_weather": weather_cache[-1] if weather_cache else None,
+        "ultimos_eventos": events_cache[-5:] if events_cache else [],
+        "stations_distintas": len(getattr(bus, '_weather_by_station', {}) or {}),
     })
 
 @app.route('/openapi.yaml')

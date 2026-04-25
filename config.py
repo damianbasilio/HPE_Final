@@ -48,6 +48,25 @@ ARUBA_BOUNDS = (
     float(os.getenv('ARUBA_LON_MAX', -69.8))
 )
 
+ARUBA_LANDMARKS = [
+    ("Oranjestad",          12.5240, -70.0270),
+    ("Aeropuerto Reina Beatrix", 12.5014, -70.0152),
+    ("Eagle Beach",         12.5538, -70.0518),
+    ("Palm Beach",          12.5762, -70.0489),
+    ("Noord",               12.5870, -70.0411),
+    ("Hadicurari",          12.5818, -70.0469),
+    ("California Lighthouse", 12.6164, -70.0488),
+    ("Santa Cruz",          12.5363, -69.9628),
+    ("Paradera",            12.5197, -69.9851),
+    ("Tanki Leendert",      12.5474, -70.0089),
+    ("Savaneta",            12.4517, -69.9281),
+    ("Pos Chiquito",        12.4839, -69.9519),
+    ("San Nicolas",         12.4350, -69.9100),
+    ("Seroe Colorado",      12.4283, -69.8836),
+    ("Sint Cruz",           12.5120, -69.9750),
+    ("Bushiribana",         12.5680, -69.9420),
+]
+
 CACHE_ENTORNO = int(os.getenv('CACHE_ENTORNO', 300))
 
 KAFKA_BROKER = os.getenv('KAFKA_BROKER', '10.10.48.30:9092')

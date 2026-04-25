@@ -58,6 +58,36 @@ def _intensidad_por_severidad(severidad: Optional[str]) -> float:
         return 0.5
     return 0.3
 
+def _to_float(value):
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+def _extraer_coords(evento: dict):
+    lat = _to_float(evento.get('latitude'))
+    if lat is None:
+        lat = _to_float(evento.get('lat'))
+
+    lon = _to_float(evento.get('longitude'))
+    if lon is None:
+        lon = _to_float(evento.get('lon'))
+    if lon is None:
+        lon = _to_float(evento.get('lng'))
+
+    if lat is None or lon is None:
+        loc = evento.get('location') or evento.get('coords') or evento.get('coordinates') or evento.get('position')
+        if isinstance(loc, dict):
+            lat = lat if lat is not None else _to_float(loc.get('lat') or loc.get('latitude'))
+            lon = lon if lon is not None else _to_float(loc.get('lon') or loc.get('lng') or loc.get('longitude'))
+        elif isinstance(loc, (list, tuple)) and len(loc) >= 2:
+            lat = lat if lat is not None else _to_float(loc[1] if abs(_to_float(loc[0]) or 0) > 90 else loc[0])
+            lon = lon if lon is not None else _to_float(loc[0] if abs(_to_float(loc[0]) or 0) > 90 else loc[1])
+
+    return lat, lon
+
 class FleetManager:
     def __init__(self, plantilla: Optional[List[tuple]] = None):
         self._lock = threading.RLock()
@@ -130,6 +160,7 @@ class FleetManager:
                 veh.factor_entorno = factor
                 veh.actualizar_simulacion(delta_time=INTERVALO_ACTUALIZACION)
                 self._sincronizar_incidente(veh)
+        self._despachar_cola()
 
     def loop_actualizacion(self, factor_entorno_cb=None) -> None:
         while True:
@@ -170,12 +201,13 @@ class FleetManager:
             logger.warning("[Flota] Evento descartado, no es dict: %r", evento)
             return None
 
-        tipo_evento = evento.get('type')
-        lat = evento.get('latitude')
-        lon = evento.get('longitude')
-        ev_id = evento.get('id') or '?'
-        sev = evento.get('severity') or 'medium'
-        resolved_at = evento.get('resolved_at')
+        tipo_evento = (evento.get('type') or evento.get('event_type')
+                       or evento.get('category') or 'incident')
+        lat, lon = _extraer_coords(evento)
+        ev_id = (evento.get('id') or evento.get('event_id')
+                 or evento.get('incident_id') or f"EV-{uuid.uuid4().hex[:6]}")
+        sev = (evento.get('severity') or evento.get('priority') or 'medium')
+        resolved_at = evento.get('resolved_at') or evento.get('closed_at')
 
         logger.info(
             "[Flota] Evento Kafka recibido: id=%s type=%s severity=%s lat=%s lon=%s resolved_at=%s",
@@ -183,19 +215,34 @@ class FleetManager:
         )
 
         if lat is None or lon is None:
-            logger.warning("[Flota] Evento %s sin coordenadas, descartado", ev_id)
+            logger.warning(
+                "[Flota] Evento %s sin coordenadas validas, descartado. payload=%r",
+                ev_id, evento,
+            )
             return None
 
         if resolved_at:
             logger.info("[Flota] Evento %s ya resuelto en origen, no se asigna unidad", ev_id)
             return None
 
-        if ev_id in self.incidentes:
-            logger.info("[Flota] Evento %s ya tratado anteriormente, ignorado", ev_id)
-            return None
+        evento_norm = dict(evento)
+        evento_norm['id'] = ev_id
+        evento_norm['type'] = tipo_evento
+        evento_norm['latitude'] = float(lat)
+        evento_norm['longitude'] = float(lon)
+        evento_norm['severity'] = sev
+
+        with self._lock:
+            existente = self.incidentes.get(ev_id)
+            if existente and existente.get('status') not in ('queued',):
+                logger.info(
+                    "[Flota] Evento %s ya tratado (status=%s), ignorado",
+                    ev_id, existente.get('status'),
+                )
+                return ev_id
 
         unidad_objetivo = MAPA_EVENTO_A_UNIDAD.get(tipo_evento, 'policia')
-        incidente = self._construir_incidente(evento, unidad_objetivo)
+        incidente = self._construir_incidente(evento_norm, unidad_objetivo)
 
         if tipo_evento in EVENTOS_CON_SCOUT:
             self._desplegar_scout_si_disponible(incidente)
@@ -218,6 +265,21 @@ class FleetManager:
                 unidad.id, unidad_objetivo, unidad.metadatos.get('nombre', unidad.id), inc_id,
             )
             return inc_id
+
+    def _despachar_cola(self) -> None:
+        with self._lock:
+            pendientes = [i for i in self.incidentes.values() if i.get('status') == 'queued']
+            for inc in pendientes:
+                tipo = inc.get('tipo_unidad_solicitada', 'policia')
+                unidad = self._buscar_unidad_para(tipo)
+                if unidad:
+                    nuevo_inc = dict(inc)
+                    self._activar_intervencion(unidad, nuevo_inc)
+                    self.incidentes[nuevo_inc['incident_id']] = nuevo_inc
+                    logger.info(
+                        "[Flota] Cola: asignado %s a %s (%s)",
+                        unidad.id, tipo, nuevo_inc['incident_id'],
+                    )
 
     def _construir_incidente(self, evento: dict, unidad_objetivo: str) -> dict:
         sev = evento.get('severity', 'medium')

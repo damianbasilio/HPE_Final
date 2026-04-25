@@ -2,13 +2,25 @@
 
 import random
 import math
-from config import CENTRO_ARUBA
+from config import ARUBA_LANDMARKS, CENTRO_ARUBA
+
+def _spawn_landmark():
+    if not ARUBA_LANDMARKS:
+        return CENTRO_ARUBA
+    nombre, lat, lon = random.choice(ARUBA_LANDMARKS)
+    return (lat + random.uniform(-0.002, 0.002),
+            lon + random.uniform(-0.002, 0.002))
 
 class SimuladorGPS:
 
     def __init__(self, lat=None, lon=None):
-        self.latitud = lat or CENTRO_ARUBA[0]
-        self.longitud = lon or CENTRO_ARUBA[1]
+        if lat is None or lon is None:
+            spawn = _spawn_landmark()
+            self.latitud = lat if lat is not None else spawn[0]
+            self.longitud = lon if lon is not None else spawn[1]
+        else:
+            self.latitud = lat
+            self.longitud = lon
 
         self.ruta = None
         self.indice_ruta = 0

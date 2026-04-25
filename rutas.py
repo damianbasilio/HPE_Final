@@ -5,7 +5,7 @@ import random
 import threading
 from typing import Dict, List, Optional, Tuple
 
-from config import ARUBA_BOUNDS, CENTRO_ARUBA
+from config import ARUBA_BOUNDS, ARUBA_LANDMARKS, CENTRO_ARUBA
 from inventario_aruba import InventarioAruba
 
 logger = logging.getLogger(__name__)
@@ -135,20 +135,28 @@ def generar_ruta(origen: Tuple[float, float], destino: Tuple[float, float]) -> L
     puntos.append(list(destino))
     return puntos
 
-def generar_ruta_patrulla(origen: Optional[Tuple[float, float]] = None) -> List[List[float]]:
-    lat_min, lat_max, lon_min, lon_max = ARUBA_BOUNDS
-    if not origen:
-        origen = (
-            random.uniform(lat_min, lat_max),
-            random.uniform(lon_min, lon_max)
-        )
+def punto_landmark_aleatorio() -> Tuple[float, float]:
+    if not ARUBA_LANDMARKS:
+        return CENTRO_ARUBA
+    nombre, lat, lon = random.choice(ARUBA_LANDMARKS)
+    jitter_lat = random.uniform(-0.003, 0.003)
+    jitter_lon = random.uniform(-0.003, 0.003)
+    return (lat + jitter_lat, lon + jitter_lon)
 
-    destinos = []
-    for _ in range(random.randint(2, 4)):
-        destinos.append((
-            random.uniform(lat_min, lat_max),
-            random.uniform(lon_min, lon_max)
-        ))
+def generar_ruta_patrulla(origen: Optional[Tuple[float, float]] = None) -> List[List[float]]:
+    if not origen:
+        origen = punto_landmark_aleatorio()
+
+    nodos, _ = _obtener_grafo()
+    cantidad = random.randint(2, 4)
+
+    destinos: List[Tuple[float, float]] = []
+    if nodos:
+        candidatos = list(nodos.values())
+        random.shuffle(candidatos)
+        destinos = [tuple(c) for c in candidatos[:cantidad]]
+    else:
+        destinos = [punto_landmark_aleatorio() for _ in range(cantidad)]
 
     ruta_total: List[List[float]] = [list(origen)]
     actual = origen

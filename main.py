@@ -161,7 +161,8 @@ threading.Thread(target=bucle_telemetria, daemon=True).start()
 @app.before_request
 def proteger_vistas():
     public_endpoints = {
-        'health', 'health_kafka', 'openapi', 'vehicles_status', 'list_vehicles', 'get_vehicle',
+        'health', 'health_kafka', 'health_kafka_probe', 'openapi',
+        'vehicles_status', 'list_vehicles', 'get_vehicle',
         'list_incidents', 'list_simulations', 'sim_replay', 'sim_state', 'sim_pause',
         'sim_speed', 'ask_fleet', 'weather_stations', 'weather_reading', 'index',
         'login', 'static', 'ciudadano', 'api_contexto'
@@ -248,6 +249,57 @@ def health_kafka():
         "ultimo_weather": weather_cache[-1] if weather_cache else None,
         "ultimos_eventos": events_cache[-5:] if events_cache else [],
         "stations_distintas": len(getattr(bus, '_weather_by_station', {}) or {}),
+    })
+
+@app.route('/health/kafka/probe')
+def health_kafka_probe():
+    import json as _json
+    from kafka import KafkaConsumer as _KC
+    from kafka_bus import _kafka_common_config as _cfg
+    from config import KAFKA_TOPIC_EVENTOS as _TOPIC
+
+    timeout_ms = int(request.args.get('timeout_ms', '5000'))
+    desde = request.args.get('from', 'earliest')
+    consumer = None
+    mensajes = []
+    error = None
+    try:
+        consumer = _KC(
+            _TOPIC,
+            group_id=None,
+            auto_offset_reset=desde,
+            enable_auto_commit=False,
+            value_deserializer=lambda v: _json.loads(v.decode('utf-8')),
+            session_timeout_ms=10000,
+            request_timeout_ms=20000,
+            api_version_auto_timeout_ms=10000,
+            **_cfg(),
+        )
+        polled = consumer.poll(timeout_ms=timeout_ms, max_records=20)
+        for tp_records in polled.values():
+            for rec in tp_records:
+                mensajes.append({
+                    "offset": rec.offset,
+                    "partition": rec.partition,
+                    "key": rec.key.decode() if isinstance(rec.key, (bytes, bytearray)) else rec.key,
+                    "value": rec.value,
+                })
+    except Exception as exc:
+        error = repr(exc)
+    finally:
+        try:
+            if consumer is not None:
+                consumer.close()
+        except Exception:
+            pass
+
+    return jsonify({
+        "topic": _TOPIC,
+        "auto_offset_reset": desde,
+        "timeout_ms": timeout_ms,
+        "mensajes_recibidos": len(mensajes),
+        "muestras": mensajes,
+        "error": error,
     })
 
 @app.route('/openapi.yaml')

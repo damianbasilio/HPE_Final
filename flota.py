@@ -167,12 +167,31 @@ class FleetManager:
 
     def manejar_evento(self, evento: dict) -> Optional[str]:
         if not isinstance(evento, dict):
+            logger.warning("[Flota] Evento descartado, no es dict: %r", evento)
             return None
 
         tipo_evento = evento.get('type')
         lat = evento.get('latitude')
         lon = evento.get('longitude')
+        ev_id = evento.get('id') or '?'
+        sev = evento.get('severity') or 'medium'
+        resolved_at = evento.get('resolved_at')
+
+        logger.info(
+            "[Flota] Evento Kafka recibido: id=%s type=%s severity=%s lat=%s lon=%s resolved_at=%s",
+            ev_id, tipo_evento, sev, lat, lon, resolved_at,
+        )
+
         if lat is None or lon is None:
+            logger.warning("[Flota] Evento %s sin coordenadas, descartado", ev_id)
+            return None
+
+        if resolved_at:
+            logger.info("[Flota] Evento %s ya resuelto en origen, no se asigna unidad", ev_id)
+            return None
+
+        if ev_id in self.incidentes:
+            logger.info("[Flota] Evento %s ya tratado anteriormente, ignorado", ev_id)
             return None
 
         unidad_objetivo = MAPA_EVENTO_A_UNIDAD.get(tipo_evento, 'policia')
@@ -187,11 +206,18 @@ class FleetManager:
                 incidente['incident_status'] = 'queued'
                 incidente['status'] = 'queued'
                 self.incidentes[incidente['incident_id']] = incidente
-                logger.info("[Flota] Sin %s libre para %s",
-                            unidad_objetivo, incidente['incident_id'])
-                return None
+                logger.warning(
+                    "[Flota] Sin unidad %s libre para %s, en cola",
+                    unidad_objetivo, incidente['incident_id'],
+                )
+                return incidente['incident_id']
 
-            return self._activar_intervencion(unidad, incidente)
+            inc_id = self._activar_intervencion(unidad, incidente)
+            logger.info(
+                "[Flota] Asignado %s a %s (%s) para %s",
+                unidad.id, unidad_objetivo, unidad.metadatos.get('nombre', unidad.id), inc_id,
+            )
+            return inc_id
 
     def _construir_incidente(self, evento: dict, unidad_objetivo: str) -> dict:
         sev = evento.get('severity', 'medium')

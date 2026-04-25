@@ -88,9 +88,9 @@ class KafkaBus:
     def _crear_consumer(self, topic: str, group_id: str, auto_offset_reset: str = "earliest") -> KafkaConsumer:
         return KafkaConsumer(
             topic,
-            group_id=group_id,
+            group_id=None,
             auto_offset_reset=auto_offset_reset,
-            enable_auto_commit=True,
+            enable_auto_commit=False,
             value_deserializer=lambda v: json.loads(v.decode("utf-8")),
             session_timeout_ms=15000,
             request_timeout_ms=40000,
@@ -132,9 +132,16 @@ class KafkaBus:
                 pass
 
     def _bucle_consumer(self, consumer: KafkaConsumer, cache: Deque[dict], hook, etiqueta: str) -> None:
+        logger.info("[Kafka] Bucle %s iniciado (auto_offset_reset=earliest, group_id=None)", etiqueta)
         while not self._stop_event.is_set():
             try:
-                for mensaje in consumer.poll(timeout_ms=1000).values():
+                resultado = consumer.poll(timeout_ms=1000)
+                if not resultado:
+                    continue
+                total = sum(len(v) for v in resultado.values())
+                if etiqueta == "events" and total:
+                    logger.info("[Kafka] %s: %d mensajes recibidos en este poll", etiqueta, total)
+                for mensaje in resultado.values():
                     for record in mensaje:
                         valor = record.value
                         cache.append(valor)
@@ -142,8 +149,16 @@ class KafkaBus:
                             station_id = valor.get("station_id")
                             if station_id:
                                 self._weather_by_station[station_id] = valor
+                        elif etiqueta == "events":
+                            logger.info(
+                                "[Kafka] events offset=%s key=%s payload=%s",
+                                record.offset, record.key, valor,
+                            )
                         if hook:
-                            hook(valor)
+                            try:
+                                hook(valor)
+                            except Exception as hook_exc:
+                                logger.exception("[Kafka] hook %s fallo: %s", etiqueta, hook_exc)
             except Exception as exc:
                 logger.warning("Kafka %s: %s", etiqueta, exc)
 

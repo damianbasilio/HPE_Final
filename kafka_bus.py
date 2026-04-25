@@ -47,13 +47,14 @@ class KafkaBus:
         try:
             self._producer = KafkaProducer(
                 value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-                request_timeout_ms=5000,
-                api_version_auto_timeout_ms=5000,
+                request_timeout_ms=20000,
+                api_version_auto_timeout_ms=10000,
                 **_kafka_common_config(),
             )
+            logger.info("Kafka producer conectado a %s", KAFKA_BROKER)
         except Exception as exc:
-            logger.warning(
-                "Kafka producer no disponible (%s). El servidor arrancara sin telemetria saliente.",
+            logger.error(
+                "Kafka producer NO disponible (%s). El servidor arranca sin telemetria saliente.",
                 exc,
             )
             self._producer = None
@@ -62,16 +63,18 @@ class KafkaBus:
             self._weather_consumer = self._crear_consumer(
                 KAFKA_TOPIC_CLIMA, group_id=f"{TEAM_ID}-weather"
             )
+            logger.info("Kafka consumer suscrito a %s", KAFKA_TOPIC_CLIMA)
         except Exception as exc:
-            logger.warning("Kafka consumer clima no disponible (%s).", exc)
+            logger.error("Kafka consumer clima NO disponible (%s).", exc, exc_info=True)
             self._weather_consumer = None
 
         try:
             self._events_consumer = self._crear_consumer(
                 KAFKA_TOPIC_EVENTOS, group_id=f"{TEAM_ID}-events"
             )
+            logger.info("Kafka consumer suscrito a %s", KAFKA_TOPIC_EVENTOS)
         except Exception as exc:
-            logger.warning("Kafka consumer eventos no disponible (%s).", exc)
+            logger.error("Kafka consumer eventos NO disponible (%s).", exc, exc_info=True)
             self._events_consumer = None
 
         self.disponible = bool(
@@ -89,9 +92,9 @@ class KafkaBus:
             auto_offset_reset=auto_offset_reset,
             enable_auto_commit=True,
             value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-            consumer_timeout_ms=0,
-            request_timeout_ms=8000,
-            api_version_auto_timeout_ms=5000,
+            session_timeout_ms=15000,
+            request_timeout_ms=40000,
+            api_version_auto_timeout_ms=10000,
             **_kafka_common_config(),
         )
 

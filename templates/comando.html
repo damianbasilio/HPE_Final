@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Visualizador - Aruba Gemelo Digital{% endblock %}
+
+{% block head_extra %}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=1">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="/socket.io/socket.io.js" defer></script>
+  <script src="{{ url_for('static', filename='js/panel_flota.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/visualizador.js') }}" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="dt-dashboard">
+  <header class="dt-summary">
+    <div class="dt-card">
+      <span class="label">Total flota</span>
+      <span class="value" id="flota-total">--</span>
+    </div>
+    <div class="dt-card">
+      <span class="label">Activas</span>
+      <span class="value" id="flota-activos">--</span>
+    </div>
+    <div class="dt-card">
+      <span class="label">Coste total</span>
+      <span class="value" id="flota-coste">0.00</span>
+      <span class="unit">EUR</span>
+    </div>
+    <div class="dt-card replay">
+      <form id="replay-form" class="replay-form">
+        <label>Replay desde
+          <input id="replay-ts" type="datetime-local" value="2026-04-01T00:00" required>
+        </label>
+        <label>Velocidad
+          <input id="replay-speed" type="number" min="0.5" max="30" step="0.5" value="5">
+        </label>
+        <button type="submit" class="btn btn-primary">Iniciar</button>
+        <button type="button" class="btn btn-ghost" id="replay-pause">Pausa/Reanudar</button>
+        <input id="replay-set-speed" type="number" min="0.5" max="30" step="0.5" value="5" placeholder="x velocidad">
+      </form>
+      <div id="replay-estado" class="replay-estado"><p class="muted">Sin replay activo</p></div>
+    </div>
+  </header>
+
+  <div class="dt-grid">
+    <aside class="dt-side">
+      <section class="panel">
+        <h2>Unidades</h2>
+        <div id="unidades-lista" class="vehicle-list"></div>
+      </section>
+      <section class="panel">
+        <h2>Incidentes</h2>
+        <div id="incidentes-lista" class="incidentes-list"></div>
+      </section>
+    </aside>
+
+    <main class="dt-map-wrap">
+      <div id="mapa-flota" class="dt-map"></div>
+    </main>
+
+    <aside class="dt-detail">
+      <section class="panel">
+        <h2>Detalle de unidad</h2>
+        <div id="detalle-unidad" class="details-box">
+          <p>Selecciona una unidad para ver detalles.</p>
+        </div>
+      </section>
+      <section class="panel chat">
+        <h2>Asistente NLP</h2>
+        <div id="chat-mensajes" class="chat-box"></div>
+        <form id="chat-form" class="chat-form">
+          <input id="chat-input" type="text" placeholder="Pregunta sobre la isla..." required />
+          <button type="submit" class="btn btn-primary">Enviar</button>
+        </form>
+      </section>
+    </aside>
+  </div>
+</div>
+{% endblock %}

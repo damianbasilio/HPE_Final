@@ -1,0 +1,463 @@
+{
+  "asyncapi": "3.0.0",
+  "info": {
+    "title": "Aruba Weather and Events Infrastructure",
+    "version": "1.0.0",
+    "description": "Event-driven API for ingesting and consuming real-time weather readings and emergency events across Aruba."
+  },
+  "servers": {
+    "production": {
+      "host": "10.10.48.30:9092",
+      "protocol": "kafka",
+      "description": "Production Kafka broker."
+    }
+  },
+  "channels": {
+    "seedSolutionsTopic": {
+      "address": "aruba.team.seed-solutions-ai-team",
+      "description": "Fleet telemetry sent by Seed Solutions AI Team",
+      "messages": {
+        "fleetTelemetry": {
+          "$ref": "#/components/messages/FleetTelemetry"
+        }
+      }
+    },
+    "sec52Topic": {
+      "address": "aruba.team.52sec",
+      "description": "Fleet telemetry sent by 52Sec",
+      "messages": {
+        "fleetTelemetry": {
+          "$ref": "#/components/messages/FleetTelemetry"
+        }
+      }
+    },
+    "gtpTopic": {
+      "address": "aruba.team.gtp",
+      "description": "Fleet telemetry sent by GTP",
+      "messages": {
+        "fleetTelemetry": {
+          "$ref": "#/components/messages/FleetTelemetry"
+        }
+      }
+    },
+    "tresDiasTopic": {
+      "address": "aruba.team.tres-dias-de-gracia",
+      "description": "Fleet telemetry sent by Tres Días de Gracia",
+      "messages": {
+        "fleetTelemetry": {
+          "$ref": "#/components/messages/FleetTelemetry"
+        }
+      }
+    },
+    "cyberQueensTopic": {
+      "address": "aruba.team.cyberqueens",
+      "description": "Fleet telemetry sent by CyberQueens",
+      "messages": {
+        "fleetTelemetry": {
+          "$ref": "#/components/messages/FleetTelemetry"
+        }
+      }
+    }
+  },
+  "operations": {
+    "receiveSeedSolutionsTelemetry": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/seedSolutionsTopic"
+      },
+      "summary": "Receive telemetry from Seed Solutions AI Team"
+    },
+    "receive52SecTelemetry": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/sec52Topic"
+      },
+      "summary": "Receive telemetry from 52Sec"
+    },
+    "receiveGTPTelemetry": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/gtpTopic"
+      },
+      "summary": "Receive telemetry from GTP"
+    },
+    "receiveTresDiasTelemetry": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/tresDiasTopic"
+      },
+      "summary": "Receive telemetry from Tres Días de Gracia"
+    },
+    "receiveCyberQueensTelemetry": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/cyberQueensTopic"
+      },
+      "summary": "Receive telemetry from CyberQueens"
+    }
+  },
+  "components": {
+    "messages": {
+      "FleetTelemetry": {
+        "name": "FleetTelemetry",
+        "title": "Fleet Telemetry",
+        "summary": "Telemetry message published by finalist teams",
+        "contentType": "application/json",
+        "payload": {
+          "$ref": "#/components/schemas/TeamEventMessageIn"
+        },
+        "examples": [
+          {
+            "name": "cyberQueensExample",
+            "summary": "Example fleet telemetry message",
+            "payload": {
+              "schema_version": "1.0.0",
+              "message_type": "fleet_telemetry",
+              "team_id": "cyberqueens",
+              "sent_at": "2026-04-26T11:05:10Z",
+              "vehicle": {
+                "vehicle_id": "ambulance-01",
+                "vehicle_type": "ambulance",
+                "unit_name": "Ambulancia 1"
+              },
+              "telemetry": {
+                "position": {
+                  "lat": 12.5092,
+                  "lon": -70.0086
+                },
+                "speed": {
+                  "value": 42.5,
+                  "unit": "kmh"
+                },
+                "heading": 135.2
+              },
+              "operational_status": {
+                "state": "en_route",
+                "availability": "busy",
+                "priority": "high"
+              },
+              "incident": {
+                "incident_id": "INC-2026-00124",
+                "incident_type": "medical_alert",
+                "incident_status": "assigned"
+              },
+              "costs": {
+                "estimated_operational_cost": 18.4,
+                "currency": "EUR"
+              },
+              "specialty_data": {
+                "patient_heart_rate": 97,
+                "patient_spo2": 95
+              },
+              "metadata": {
+                "trace_id": "8f0d5a31-7b7a-4b51-bf1e-c3f4a3a8f001",
+                "producer": "digital-twin-backend"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "schemas": {
+      "TeamEventMessageIn": {
+        "type": "object",
+        "title": "TeamEventMessageIn",
+        "required": [
+          "message_type",
+          "team_id",
+          "sent_at",
+          "vehicle",
+          "telemetry",
+          "operational_status"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20,
+            "default": "1.0.0"
+          },
+          "message_type": {
+            "type": "string",
+            "const": "fleet_telemetry"
+          },
+          "team_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Must match the team associated with the topic/API key."
+          },
+          "sent_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "vehicle": {
+            "$ref": "#/components/schemas/FleetVehicle"
+          },
+          "telemetry": {
+            "$ref": "#/components/schemas/FleetTelemetryPayload"
+          },
+          "operational_status": {
+            "$ref": "#/components/schemas/FleetOperationalStatus"
+          },
+          "incident": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FleetIncident"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "costs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FleetCosts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "specialty_data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FleetMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        }
+      },
+      "FleetVehicle": {
+        "type": "object",
+        "required": [
+          "vehicle_id",
+          "vehicle_type"
+        ],
+        "properties": {
+          "vehicle_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "vehicle_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "unit_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        }
+      },
+      "FleetTelemetryPayload": {
+        "type": "object",
+        "required": [
+          "position",
+          "speed"
+        ],
+        "properties": {
+          "position": {
+            "$ref": "#/components/schemas/FleetPosition"
+          },
+          "speed": {
+            "$ref": "#/components/schemas/FleetSpeed"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "exclusiveMaximum": 360
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        }
+      },
+      "FleetPosition": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lon"
+        ],
+        "properties": {
+          "lat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "lon": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          }
+        }
+      },
+      "FleetSpeed": {
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "properties": {
+          "value": {
+            "type": "number",
+            "minimum": 0
+          },
+          "unit": {
+            "type": "string",
+            "pattern": "^kmh$",
+            "default": "kmh"
+          }
+        }
+      },
+      "FleetOperationalStatus": {
+        "type": "object",
+        "required": [
+          "state",
+          "availability"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "availability": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        }
+      },
+      "FleetIncident": {
+        "type": "object",
+        "properties": {
+          "incident_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "incident_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "incident_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        }
+      },
+      "FleetCosts": {
+        "type": "object",
+        "properties": {
+          "estimated_operational_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3,
+            "default": "EUR"
+          }
+        }
+      },
+      "FleetMetadata": {
+        "type": "object",
+        "properties": {
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "producer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        }
+      }
+    }
+  }
+}

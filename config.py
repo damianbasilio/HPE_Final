@@ -1,0 +1,103 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Configuracion de Flask
+CLAVE_FLASK = os.getenv('FLASK_SECRET_KEY', os.urandom(24).hex())
+DEPURACION_FLASK = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
+HOST_SERVIDOR = os.getenv('HOST_SERVIDOR', '0.0.0.0')
+PUERTO_SERVIDOR = int(os.getenv('PUERTO_SERVIDOR', 8080))
+
+# Endpoints Aruba
+API_INVENTARIO_URL = os.getenv('ARUBA_INVENTORY_API', 'http://10.10.48.30:8080')
+API_EQUIPO_URL = os.getenv('ARUBA_TEAM_API', 'http://10.10.48.21:8080')
+
+# Identidad del equipo
+TEAM_ID = os.getenv('TEAM_ID', '52sec')
+
+# LLM Aruba (OpenAI compatible)
+LLM_BASE_URL = os.getenv('LLM_BASE_URL', 'http://10.10.48.10:8001/v1')
+LLM_API_KEY = os.getenv('LLM_API_KEY', 'dummy')
+LLM_MODEL = os.getenv('LLM_MODEL', 'Qwen/Qwen3-235B-A22B')
+LLM_TEMPERATURA = float(os.getenv('LLM_TEMPERATURA', 0.6))
+LLM_TOP_P = float(os.getenv('LLM_TOP_P', 0.95))
+LLM_MAX_TOKENS = int(os.getenv('LLM_MAX_TOKENS', 1024))
+LLM_THINKING = os.getenv('LLM_THINKING', 'false').lower() == 'true'
+
+# Intervalo de actualizacion del simulador (segundos)
+INTERVALO_ACTUALIZACION = float(os.getenv('INTERVALO_SIM', 0.5))
+
+# Intervalo de publicacion de telemetria a Kafka (segundos) - tope del PDF: 5-10s
+INTERVALO_TELEMETRIA = float(os.getenv('INTERVALO_TELEMETRIA', 7.5))
+
+# Rangos aleatorios iniciales del vehiculo (minimo, maximo)
+RANGO_COMBUSTIBLE_INICIAL = (60, 95)
+RANGO_KM_INICIAL = (15000, 80000)
+RANGO_TEMP_INICIAL = (65, 75)
+RANGO_ACEITE_INICIAL = (80, 100)
+RANGO_DESGASTE_FRENOS = (20, 60)
+RANGO_DESGASTE_NEUMATICOS = (30, 70)
+
+# Parametros de operacion del vehiculo
+VELOCIDAD_PATRULLA = int(os.getenv('VELOCIDAD_PATRULLA', 35))
+TASA_REABASTECIMIENTO = float(os.getenv('TASA_REABASTECIMIENTO', 2.0))
+UMBRAL_COMBUSTIBLE = int(os.getenv('UMBRAL_COMBUSTIBLE', 15))
+TEMP_AMBIENTE = float(os.getenv('TEMP_AMBIENTE', 25.0))
+TEMP_MAXIMA = int(os.getenv('TEMP_MAXIMA', 120))
+VELOCIDAD_MAXIMA = int(os.getenv('VELOCIDAD_MAXIMA', 200))
+
+# Coordenadas centrales de Aruba (latitud, longitud)
+CENTRO_ARUBA = (12.5211, -69.9683)
+
+# Limites geograficos aproximados de Aruba (lat_min, lat_max, lon_min, lon_max)
+ARUBA_BOUNDS = (
+    float(os.getenv('ARUBA_LAT_MIN', 12.4)),
+    float(os.getenv('ARUBA_LAT_MAX', 12.7)),
+    float(os.getenv('ARUBA_LON_MIN', -70.1)),
+    float(os.getenv('ARUBA_LON_MAX', -69.8))
+)
+
+# Cache de datos de entorno (segundos)
+CACHE_ENTORNO = int(os.getenv('CACHE_ENTORNO', 300))
+
+# Kafka
+KAFKA_BROKER = os.getenv('KAFKA_BROKER', '10.10.48.30:9092')
+KAFKA_USERNAME = os.getenv('KAFKA_USERNAME', '52sec')
+KAFKA_PASSWORD = os.getenv('KAFKA_PASSWORD', '')
+KAFKA_SECURITY_PROTOCOL = os.getenv('KAFKA_SECURITY_PROTOCOL', 'SASL_PLAINTEXT')
+KAFKA_SASL_MECHANISM = os.getenv('KAFKA_SASL_MECHANISM', 'PLAIN')
+KAFKA_TOPIC_TELEMETRIA = os.getenv('KAFKA_TOPIC_TELEMETRIA', 'aruba.team.52sec')
+KAFKA_TOPIC_CLIMA = os.getenv('KAFKA_TOPIC_CLIMA', 'aruba.weather')
+KAFKA_TOPIC_EVENTOS = os.getenv('KAFKA_TOPIC_EVENTOS', 'aruba.events')
+
+# Tiempo de vida de sesion (segundos)
+TIEMPO_SESION = int(os.getenv('TIEMPO_SESION', 3600))
+
+# Maximo de puntos del rastro en difusion
+MAX_PUNTOS_RASTRO = int(os.getenv('MAX_PUNTOS_RASTRO', 100))
+
+# Distancia maxima del rastro visual (km)
+DIST_MAX_RASTRO = float(os.getenv('DIST_MAX_RASTRO', 0.5))
+
+# Cache de archivos estaticos (segundos)
+CACHE_ESTATICOS = int(os.getenv('CACHE_ESTATICOS', 31536000))
+
+# Origenes permitidos para CORS/WebSocket (separados por coma, o * para todos)
+_cors_raw = os.getenv('CORS_ORIGENES', '*')
+CORS_ORIGENES = _cors_raw if _cors_raw == '*' else [o.strip() for o in _cors_raw.split(',')]
+
+# Seguridad de cookies de sesion
+COOKIE_HTTPONLY = True
+COOKIE_SAMESITE = 'Lax'
+
+# Tipos de vehiculo soportados por la flota.
+# Importante: la jerarquia de clases del Gemelo Digital se apoya en este
+# registro y la factory los valida contra `costos.obtener_tarifa`.
+TIPOS_VEHICULO_VALIDOS = (
+    'policia', 'ambulancia', 'bomberos', 'proteccion_civil', 'dron'
+)
+
+# Re-export de la tarifa para que las clases de vehiculo puedan importarla
+# directamente desde `config` (mantiene compatibilidad con el modelo POO nuevo).
+from costos import obtener_tarifa  # noqa: E402,F401

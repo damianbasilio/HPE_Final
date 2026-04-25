@@ -1,19 +1,70 @@
 
 
 document.addEventListener('DOMContentLoaded', () => {
-  const panel = new window.PanelFlota({
-    idMapa: 'mapa-flota',
-    modo: 'operador',
-    onSeleccion: (id) => renderDetalle(id),
-  });
+  let panel;
+  try {
+    panel = new window.PanelFlota({
+      idMapa: 'mapa-flota',
+      modo: 'operador',
+      onSeleccion: (id) => renderDetalle(id),
+    });
+  } catch (err) {
+    console.error('[operador] PanelFlota fallo, sigo sin mapa:', err);
+    panel = {
+      seleccionado: null,
+      actualizarFlota: () => {},
+      seleccionarUnidad: (id) => { panel.seleccionado = id; renderDetalle(id); },
+      unidadActual: () => null,
+      centrarEn: () => {},
+    };
+  }
 
-  const socket = io({ transports: ['websocket', 'polling'] });
+  let socket;
+  try {
+    socket = io({ transports: ['websocket', 'polling'] });
+  } catch (err) {
+    console.error('[operador] Socket.IO no disponible:', err);
+    socket = { on: () => {}, emit: () => {} };
+  }
+
   let estadoActual = { vehiculos: [], incidentes: [] };
+  let datosRecibidos = false;
 
   socket.on('connect', () => actualizarConexion(true));
   socket.on('disconnect', () => actualizarConexion(false));
 
+  setTimeout(() => {
+    if (!datosRecibidos) {
+      console.warn('[operador] Socket.IO sin datos en 3s, recurriendo a REST');
+      cargarDatosRest();
+      setInterval(cargarDatosRest, 5000);
+    }
+  }, 3000);
+
+  async function cargarDatosRest() {
+    try {
+      const [resV, resI] = await Promise.all([
+        fetch('/vehicles'),
+        fetch('/incidents'),
+      ]);
+      if (!resV.ok || !resI.ok) return;
+      const dV = await resV.json();
+      const dI = await resI.json();
+      estadoActual = {
+        vehiculos: Array.isArray(dV) ? dV : (dV.vehicles || dV.vehiculos || []),
+        incidentes: Array.isArray(dI) ? dI : (dI.incidents || dI.incidentes || []),
+      };
+      panel.actualizarFlota(estadoActual);
+      renderListaUnidades();
+      renderListaIncidentes();
+      renderResumen();
+    } catch (err) {
+      console.warn('[operador] cargarDatosRest fallo:', err);
+    }
+  }
+
   socket.on('estado_inicial', (data) => {
+    datosRecibidos = true;
     estadoActual = { vehiculos: data.vehiculos || [], incidentes: data.incidentes || [] };
     panel.actualizarFlota(estadoActual);
     renderListaUnidades();
@@ -22,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   socket.on('actualizacion_flotas', (data) => {
+    datosRecibidos = true;
     estadoActual = { vehiculos: data.vehiculos || [], incidentes: data.incidentes || [] };
     panel.actualizarFlota(estadoActual);
     renderListaUnidades();

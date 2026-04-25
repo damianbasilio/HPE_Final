@@ -37,22 +37,31 @@ class PanelFlota {
   _inicializarMapa(idMapa) {
     const el = document.getElementById(idMapa);
     if (!el) {
-      console.warn('[PanelFlota] mapa no encontrado:', idMapa);
+      console.warn('[PanelFlota] contenedor de mapa no encontrado:', idMapa);
       return;
     }
+    if (typeof L === 'undefined') {
+      console.warn('[PanelFlota] Leaflet no esta cargado, dashboard funcionara sin mapa.');
+      el.innerHTML = '<div style="padding:24px;color:#94a3b8;">Mapa no disponible (Leaflet no cargo). El resto del panel sigue activo.</div>';
+      return;
+    }
+    try {
+      this.mapa = L.map(idMapa, {
+        zoomControl: true,
+        attributionControl: true,
+      }).setView(ARUBA_CENTRO, ARUBA_ZOOM);
 
-    this.mapa = L.map(idMapa, {
-      zoomControl: true,
-      attributionControl: true,
-    }).setView(ARUBA_CENTRO, ARUBA_ZOOM);
-
-    this.tilesLayer = L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap, © CARTO',
-      }
-    ).addTo(this.mapa);
+      this.tilesLayer = L.tileLayer(
+        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        {
+          maxZoom: 19,
+          attribution: 'OpenStreetMap, CARTO',
+        }
+      ).addTo(this.mapa);
+    } catch (err) {
+      console.error('[PanelFlota] error inicializando mapa:', err);
+      this.mapa = null;
+    }
   }
 
   _construirIcono(unidad) {

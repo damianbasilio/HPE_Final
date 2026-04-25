@@ -21,13 +21,16 @@ from config import (
 logger = logging.getLogger(__name__)
 
 def _kafka_common_config() -> dict:
-    return {
+    cfg: dict = {
         "bootstrap_servers": KAFKA_BROKER,
-        "security_protocol": KAFKA_SECURITY_PROTOCOL,
-        "sasl_mechanism": KAFKA_SASL_MECHANISM,
-        "sasl_plain_username": KAFKA_USERNAME,
-        "sasl_plain_password": KAFKA_PASSWORD
+        "security_protocol": KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
     }
+    if KAFKA_USERNAME and KAFKA_PASSWORD:
+        cfg["security_protocol"] = KAFKA_SECURITY_PROTOCOL or "SASL_PLAINTEXT"
+        cfg["sasl_mechanism"] = KAFKA_SASL_MECHANISM or "PLAIN"
+        cfg["sasl_plain_username"] = KAFKA_USERNAME
+        cfg["sasl_plain_password"] = KAFKA_PASSWORD
+    return cfg
 
 class KafkaBus:
     def __init__(self, max_cache: int = 2000):

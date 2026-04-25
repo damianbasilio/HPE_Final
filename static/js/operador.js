@@ -44,8 +44,8 @@ document.addEventListener('DOMContentLoaded', () => {
   async function cargarDatosRest() {
     try {
       const [resV, resI] = await Promise.all([
-        fetch('/vehicles'),
-        fetch('/incidents'),
+        fetch('/_internal/vehicles'),
+        fetch('/_internal/incidents'),
       ]);
       if (!resV.ok || !resI.ok) return;
       const dV = await resV.json();

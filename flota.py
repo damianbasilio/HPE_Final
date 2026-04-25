@@ -3,7 +3,9 @@
 import logging
 import threading
 import time
+import traceback
 import uuid
+from collections import deque
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -96,7 +98,25 @@ class FleetManager:
         self.incidentes: Dict[str, dict] = {}
 
         self.asignaciones: Dict[str, str] = {}
+        self._traza: deque = deque(maxlen=200)
         self._crear_flotas_base(plantilla or PLANTILLA_DEFECTO)
+
+    def _registrar_traza(self, evento_id: str, decision: str, motivo: str = "",
+                         tipo: Optional[str] = None, payload: Optional[dict] = None) -> None:
+        try:
+            self._traza.append({
+                "ts": datetime.now().isoformat(),
+                "evento_id": evento_id,
+                "tipo": tipo,
+                "decision": decision,
+                "motivo": motivo[:300] if motivo else "",
+                "payload": payload,
+            })
+        except Exception:
+            pass
+
+    def traza_eventos(self, limite: int = 50) -> List[dict]:
+        return list(self._traza)[-limite:]
 
     def _crear_flotas_base(self, plantilla: List[tuple]) -> None:
         for tipo, energia, nombre in plantilla:
@@ -197,8 +217,24 @@ class FleetManager:
             self.asignaciones.pop(veh.id, None)
 
     def manejar_evento(self, evento: dict) -> Optional[str]:
+        try:
+            return self._manejar_evento_inner(evento)
+        except Exception as exc:
+            tb = traceback.format_exc()
+            logger.error("[Flota] manejar_evento explotó: %s\n%s", exc, tb)
+            ev_id = (evento.get('id') if isinstance(evento, dict) else None) or '?'
+            self._registrar_traza(
+                ev_id, decision='error',
+                motivo=f"{type(exc).__name__}: {exc}",
+                payload=evento if isinstance(evento, dict) else {"raw": str(evento)},
+            )
+            return None
+
+    def _manejar_evento_inner(self, evento: dict) -> Optional[str]:
         if not isinstance(evento, dict):
             logger.warning("[Flota] Evento descartado, no es dict: %r", evento)
+            self._registrar_traza('?', 'descartado', 'no es dict',
+                                  payload={"raw": str(evento)})
             return None
 
         tipo_evento = (evento.get('type') or evento.get('event_type')
@@ -219,10 +255,16 @@ class FleetManager:
                 "[Flota] Evento %s sin coordenadas validas, descartado. payload=%r",
                 ev_id, evento,
             )
+            self._registrar_traza(ev_id, 'descartado',
+                                  'sin coordenadas',
+                                  tipo=tipo_evento, payload=evento)
             return None
 
         if resolved_at:
             logger.info("[Flota] Evento %s ya resuelto en origen, no se asigna unidad", ev_id)
+            self._registrar_traza(ev_id, 'descartado',
+                                  f'resolved_at={resolved_at}',
+                                  tipo=tipo_evento, payload=evento)
             return None
 
         evento_norm = dict(evento)
@@ -239,6 +281,9 @@ class FleetManager:
                     "[Flota] Evento %s ya tratado (status=%s), ignorado",
                     ev_id, existente.get('status'),
                 )
+                self._registrar_traza(ev_id, 'duplicado',
+                                      f"status={existente.get('status')}",
+                                      tipo=tipo_evento)
                 return ev_id
 
         unidad_objetivo = MAPA_EVENTO_A_UNIDAD.get(tipo_evento, 'policia')
@@ -257,12 +302,32 @@ class FleetManager:
                     "[Flota] Sin unidad %s libre para %s, en cola",
                     unidad_objetivo, incidente['incident_id'],
                 )
+                self._registrar_traza(ev_id, 'cola',
+                                      f"sin {unidad_objetivo} libre",
+                                      tipo=tipo_evento)
                 return incidente['incident_id']
 
-            inc_id = self._activar_intervencion(unidad, incidente)
+            try:
+                inc_id = self._activar_intervencion(unidad, incidente)
+            except Exception as exc:
+                tb = traceback.format_exc()
+                logger.error(
+                    "[Flota] _activar_intervencion fallo para %s: %s\n%s",
+                    incidente.get('incident_id'), exc, tb,
+                )
+                self._registrar_traza(ev_id, 'error',
+                                      f"_activar_intervencion: {type(exc).__name__}: {exc}",
+                                      tipo=tipo_evento, payload=evento)
+                return None
+
             logger.info(
                 "[Flota] Asignado %s a %s (%s) para %s",
                 unidad.id, unidad_objetivo, unidad.metadatos.get('nombre', unidad.id), inc_id,
+            )
+            self._registrar_traza(
+                ev_id, 'asignado',
+                f"{unidad_objetivo}={unidad.id} nombre={unidad.metadatos.get('nombre', unidad.id)}",
+                tipo=tipo_evento,
             )
             return inc_id
 

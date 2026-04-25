@@ -1,496 +1,334 @@
 openapi: 3.1.0
 info:
-  title: 52Sec Aruba Digital Twin - Team API
-  description: |
-    Contrato de la API REST expuesta por el Gemelo Digital del equipo 52Sec.
-    Cumple los requisitos del Reto Final HPE 2026: endpoints de flota, simulaciones,
-    chatbot y health check.
-  version: "1.0.0"
-  contact:
-    name: Equipo 52Sec
-    url: https://github.com/52sec/aruba-digital-twin
-servers:
-  - url: http://localhost:8080
-    description: Servidor local de desarrollo
-  - url: http://10.10.48.21:8080
-    description: Despliegue en infraestructura corporativa Aruba
-
-tags:
-  - name: health
-    description: Estado del servicio
-  - name: vehicles
-    description: Consulta de la flota y unidades operativas
-  - name: simulations
-    description: Gestion de simulaciones (tiempo real y replay historico)
-  - name: chatbot
-    description: Asistente NLP integrado con LLM
-  - name: weather
-    description: Consumo cacheado del bus de clima
-
+  title: Aruba Team Fleet API – Evaluation Contract
+  version: 2.0.1
 paths:
   /health:
     get:
-      tags: [health]
-      summary: Health check
-      description: Verifica que el servicio esta vivo y respondiendo.
+      tags: [base]
+      summary: Health
+      operationId: health_health_get
       responses:
-        "200":
-          description: Servicio operativo
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Health'
-
+                $ref: '#/components/schemas/HealthResponse'
   /openapi.yaml:
     get:
-      tags: [health]
-      summary: Contrato OpenAPI del equipo
+      tags: [base]
+      summary: Get Contract
+      operationId: get_contract_openapi_yaml_get
       responses:
-        "200":
-          description: Contrato YAML del equipo
+        '200':
+          description: Successful Response
           content:
             text/plain:
               schema:
                 type: string
-
-  /vehicles:
-    get:
-      tags: [vehicles]
-      summary: Listar vehiculos
-      parameters:
-        - name: type
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [policia, ambulancia, bomberos, proteccion_civil, dron]
-      responses:
-        "200":
-          description: Lista de unidades de la flota
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  total:
-                    type: integer
-                  vehicles:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/VehicleState'
-
   /vehicles/status:
     get:
-      tags: [vehicles]
-      summary: Resumen agregado de la flota
+      tags: [base]
+      summary: Vehicle Status
+      operationId: vehicle_status_vehicles_status_get
       responses:
-        "200":
-          description: Resumen con conteo por tipo, activos y coste agregado
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/FleetSummary'
-
-  /vehicles/{vehicle_id}:
-    get:
-      tags: [vehicles]
-      summary: Estado completo de una unidad
-      parameters:
-        - name: vehicle_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Estado del vehiculo
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/VehicleState'
-        "404":
-          description: Vehiculo no encontrado
-
-  /incidents:
-    get:
-      tags: [vehicles]
-      summary: Listar incidentes activos / historicos
-      responses:
-        "200":
-          description: Coleccion de incidentes
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  total:
-                    type: integer
-                  incidents:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Incident'
-
-  /simulations:
-    get:
-      tags: [simulations]
-      summary: Listar simulaciones activas
-      responses:
-        "200":
-          description: Lista de simulaciones (tiempo real y replays)
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  simulations:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/SimulationState'
-
-  /simulations/replay:
-    post:
-      tags: [simulations]
-      summary: Iniciar replay historico desde el bus Kafka
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                started_at:
-                  type: string
-                  format: date-time
-                  description: Marca temporal desde la que reproducir (ISO 8601)
-                speed:
-                  type: number
-                  minimum: 0.5
-                  maximum: 30
-                  default: 5
-                topics:
-                  type: array
-                  items:
-                    type: string
-                    enum: [aruba.weather, aruba.events]
-      responses:
-        "200":
-          description: Replay iniciado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SimulationState'
-
-  /simulations/{sim_id}/state:
-    get:
-      tags: [simulations]
-      summary: Estado actual de una simulacion
-      parameters:
-        - name: sim_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Estado actual
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SimulationState'
-        "404":
-          description: Simulacion no encontrada
-
-  /simulations/{sim_id}/pause:
-    post:
-      tags: [simulations]
-      summary: Pausar / reanudar una simulacion
-      parameters:
-        - name: sim_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Estado tras la operacion
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SimulationState'
-
-  /simulations/{sim_id}/speed:
-    post:
-      tags: [simulations]
-      summary: Ajustar velocidad de reproduccion
-      parameters:
-        - name: sim_id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [speed]
-              properties:
-                speed:
-                  type: number
-                  minimum: 0.5
-                  maximum: 30
-      responses:
-        "200":
-          description: Velocidad aplicada
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SimulationState'
-
+                $ref: '#/components/schemas/VehicleStatusSummary'
   /ask:
     get:
-      tags: [chatbot]
-      summary: Pregunta al asistente NLP
+      tags: [base]
+      summary: Ask Fleet
+      operationId: ask_fleet_ask_get
       parameters:
         - name: q
           in: query
           required: true
           schema:
             type: string
+            minLength: 3
+            title: Q
       responses:
-        "200":
-          description: Respuesta del asistente
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  answer:
-                    type: string
-                  context:
-                    type: object
-
-  /api/context:
+                $ref: '#/components/schemas/AskResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /vehicles:
     get:
-      tags: [chatbot]
-      summary: Contexto enriquecido (clima, eventos, flota)
+      tags: [vehicles]
+      summary: List Vehicles
+      operationId: list_vehicles_vehicles_get
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Type
       responses:
-        "200":
-          description: Contexto completo
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Context'
-
+                $ref: '#/components/schemas/VehiclesResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /vehicles/{vehicle_id}:
+    get:
+      tags: [vehicles]
+      summary: Get Vehicle
+      operationId: get_vehicle_vehicles__vehicle_id__get
+      parameters:
+        - name: vehicle_id
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Vehicle Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /weather-stations:
     get:
       tags: [weather]
-      summary: Estaciones meteorologicas conocidas
+      summary: List Weather Stations
+      operationId: list_weather_stations_weather_stations_get
       responses:
-        "200":
-          description: Estaciones del inventario
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  total:
-                    type: integer
-                  stations:
-                    type: array
-                    items:
-                      type: object
-
+                $ref: '#/components/schemas/WeatherStationsResponse'
   /weather-stations/{station_id}/reading:
     get:
       tags: [weather]
-      summary: Ultima lectura cacheada de una estacion
+      summary: Get Reading
+      operationId: get_reading_weather_stations__station_id__reading_get
       parameters:
         - name: station_id
           in: path
           required: true
           schema:
             type: string
+            title: Station Id
       responses:
-        "200":
-          description: Lectura
+        '200':
+          description: Successful Response
           content:
             application/json:
               schema:
-                type: object
-        "404":
-          description: Sin lectura disponible
-
+                $ref: '#/components/schemas/WeatherReading'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
-    Health:
+    AskResponse:
       type: object
+      title: AskResponse
+      required: [answer]
+      properties:
+        answer:
+          type: string
+          title: Answer
+        confidence:
+          anyOf:
+            - type: number
+            - type: 'null'
+          title: Confidence
+        data:
+          anyOf:
+            - type: object
+              additionalProperties: true
+            - type: 'null'
+          title: Data
+    HTTPValidationError:
+      type: object
+      title: HTTPValidationError
+      properties:
+        detail:
+          type: array
+          title: Detail
+          items:
+            $ref: '#/components/schemas/ValidationError'
+    HealthResponse:
+      type: object
+      title: HealthResponse
+      required: [status]
       properties:
         status:
           type: string
-          example: ok
-
-    VehicleState:
+          title: Status
+          description: Status of the service
+    ValidationError:
       type: object
+      title: ValidationError
+      required: [loc, msg, type]
+      properties:
+        loc:
+          type: array
+          title: Location
+          items:
+            anyOf:
+              - type: string
+              - type: integer
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+    Vehicle:
+      type: object
+      title: Vehicle
+      required: [id, type, status, latitude, longitude, fuel_level]
       properties:
         id:
           type: string
-        nombre:
+          title: Id
+        type:
           type: string
-        tipo:
+          title: Type
+        status:
           type: string
-          enum: [policia, ambulancia, bomberos, proteccion_civil, dron]
-        propulsion:
-          type: string
-          enum: [combustion, electrico, unico]
-        combustible:
+          title: Status
+        latitude:
           type: number
-        temperatura_motor:
+          title: Latitude
+        longitude:
           type: number
-        km_totales:
+          title: Longitude
+        fuel_level:
           type: number
-        velocidad:
-          type: number
-        velocidad_objetivo:
-          type: number
-        gps:
-          type: object
-          properties:
-            latitud:
-              type: number
-            longitud:
-              type: number
-            tiene_ruta:
-              type: boolean
-            progreso_ruta:
-              type: number
-        escenario:
-          type: object
-          properties:
-            activo:
-              type: string
-            duracion:
-              type: integer
-              nullable: true
-            transcurrido:
-              type: integer
-            en_camino:
-              type: boolean
-            en_escena:
-              type: boolean
-            eta_seg:
-              type: integer
-        costes:
-          type: object
-          properties:
-            coste_min_eur:
-              type: number
-            coste_activacion_eur:
-              type: number
-            coste_intervencion_eur:
-              type: number
-            coste_total_eur:
-              type: number
-            intervenciones_realizadas:
-              type: integer
-        especializado:
-          type: object
-          additionalProperties: true
-        incidente:
-          $ref: '#/components/schemas/Incident'
-          nullable: true
-
-    FleetSummary:
+          title: Fuel Level
+        callsign:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Callsign
+        speed_kmh:
+          anyOf:
+            - type: number
+            - type: 'null'
+          title: Speed Kmh
+        last_updated:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Last Updated
+        metadata:
+          anyOf:
+            - type: object
+              additionalProperties: true
+            - type: 'null'
+          title: Metadata
+    VehicleStatusSummary:
       type: object
+      title: VehicleStatusSummary
+      required: [total, by_type, by_status]
       properties:
         total:
           type: integer
-        activos:
-          type: integer
-        coste_total_eur:
-          type: number
-        por_tipo:
+          title: Total
+        by_type:
           type: object
+          title: By Type
           additionalProperties:
             type: integer
-        vehiculos:
-          type: array
-          items:
-            $ref: '#/components/schemas/VehicleState'
-
-    Incident:
-      type: object
-      properties:
-        incident_id:
-          type: string
-        incident_type:
-          type: string
-        incident_status:
-          type: string
-          enum: [assigned, en_route, on_scene, resolved, cancelled, queued]
-        title:
-          type: string
-        severity:
-          type: string
-          enum: [low, medium, high, critical]
-        lat:
-          type: number
-        lon:
-          type: number
-        started_at:
-          type: string
-          format: date-time
-        resolved_at:
-          type: string
-          format: date-time
-          nullable: true
-        eta_seg:
-          type: integer
-        unidad_id:
-          type: string
-        coste_total_eur:
-          type: number
-
-    SimulationState:
-      type: object
-      properties:
-        sim_id:
-          type: string
-        modo:
-          type: string
-          enum: [tiempo_real, replay]
-        estado:
-          type: string
-          enum: [running, paused, finished]
-        velocidad:
-          type: number
-        started_at:
-          type: string
-          format: date-time
-        cursor:
-          type: string
-          format: date-time
-          nullable: true
-        eventos_procesados:
-          type: integer
-        topics:
-          type: array
-          items:
-            type: string
-
-    Context:
-      type: object
-      properties:
-        clima:
+        by_status:
           type: object
-        eventos:
+          title: By Status
+          additionalProperties:
+            type: integer
+    VehiclesResponse:
+      type: object
+      title: VehiclesResponse
+      required: [vehicles]
+      properties:
+        vehicles:
           type: array
+          title: Vehicles
           items:
-            type: object
-        alertas:
+            $ref: '#/components/schemas/Vehicle'
+    WeatherReading:
+      type: object
+      title: WeatherReading
+      required: [temperature, humidity, wind_speed, timestamp]
+      properties:
+        temperature:
+          type: number
+          title: Temperature
+        humidity:
+          type: number
+          title: Humidity
+        wind_speed:
+          type: number
+          title: Wind Speed
+        timestamp:
+          type: string
+          title: Timestamp
+    WeatherStation:
+      type: object
+      title: WeatherStation
+      required: [id, name, latitude, longitude]
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        latitude:
+          type: number
+          title: Latitude
+        longitude:
+          type: number
+          title: Longitude
+    WeatherStationsResponse:
+      type: object
+      title: WeatherStationsResponse
+      required: [stations]
+      properties:
+        stations:
           type: array
+          title: Stations
           items:
-            type: string
-        flota:
-          type: object
+            $ref: '#/components/schemas/WeatherStation'

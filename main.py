@@ -96,6 +96,12 @@ try:
 except Exception as exc:
     logger.error("[Inventory] no se pudo precargar inventory: %s", exc)
 
+try:
+    from osrm_client import warmup as _osrm_warmup
+    threading.Thread(target=_osrm_warmup, daemon=True).start()
+except Exception as exc:
+    logger.error("[OSRM] no se pudo lanzar warmup: %s", exc)
+
 socketio = inicializar_socketio(app, fleet)
 gestor_simulaciones = GestorSimulaciones(fleet, bus)
 
@@ -177,11 +183,12 @@ threading.Thread(target=bucle_telemetria, daemon=True).start()
 def proteger_vistas():
     public_endpoints = {
         'health', 'health_kafka', 'health_kafka_probe', 'health_inventory',
-        'health_fleet', 'health_osrm',
+        'health_fleet', 'health_osrm', 'health_events_trace',
         'openapi', 'vehicles_status', 'list_vehicles', 'get_vehicle',
         'list_incidents', 'list_simulations', 'sim_replay', 'sim_state', 'sim_pause',
         'sim_speed', 'ask_fleet', 'weather_stations', 'weather_reading', 'index',
-        'login', 'static', 'ciudadano', 'api_contexto'
+        'login', 'static', 'ciudadano', 'api_contexto',
+        'internal_vehicles', 'internal_incidents',
     }
     if request.endpoint in public_endpoints or request.path.startswith('/static/'):
         return
@@ -241,15 +248,55 @@ def visualizador():
 def ciudadano():
     return render_template('ciudadano.html')
 
+def _map_status_vehicle(estado: dict) -> str:
+    esc = estado.get('escenario') or {}
+    activo = str(esc.get('activo') or '').lower()
+    if 'reabasteci' in activo or 'recargando' in activo:
+        return 'refueling'
+    if esc.get('en_camino'):
+        return 'en_route'
+    if esc.get('en_escena'):
+        return 'on_scene'
+    if activo == 'patrulla' or activo == '' or not esc.get('en_progreso'):
+        return 'patrol'
+    return 'intervention'
+
+def _map_vehicle(estado: dict) -> dict:
+    gps = estado.get('gps') or {}
+    costes = estado.get('costes') or {}
+    veh_id = estado.get('id')
+    veh = fleet.obtener_vehiculo(veh_id) if veh_id else None
+    callsign = estado.get('nombre') or (veh.metadatos.get('nombre') if veh else None)
+    last_updated = estado.get('timestamp') or time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+    incidente = estado.get('incidente')
+
+    return {
+        "id": str(veh_id),
+        "type": str(estado.get('tipo') or 'unknown'),
+        "status": _map_status_vehicle(estado),
+        "latitude": float(gps.get('latitud') or 0.0),
+        "longitude": float(gps.get('longitud') or 0.0),
+        "fuel_level": float(estado.get('combustible') or 0.0),
+        "callsign": callsign,
+        "speed_kmh": float(estado.get('velocidad') or 0.0),
+        "last_updated": last_updated,
+        "metadata": {
+            "propulsion": estado.get('propulsion'),
+            "scenario": (estado.get('escenario') or {}).get('activo'),
+            "eta_seg": (estado.get('escenario') or {}).get('eta_seg'),
+            "factor_entorno": estado.get('factor_entorno'),
+            "cost_total_eur": costes.get('coste_total_eur'),
+            "cost_intervention_eur": costes.get('coste_intervencion_eur'),
+            "interventions_done": costes.get('intervenciones_realizadas'),
+            "crew_size": costes.get('dotacion'),
+            "incident_id": (incidente or {}).get('incident_id') if incidente else None,
+            "incident_type": (incidente or {}).get('incident_type') if incidente else None,
+        },
+    }
+
 @app.route('/health')
 def health():
-    return jsonify({
-        "status": "ok",
-        "team_id": TEAM_ID,
-        "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-        "fleet_size": len(fleet.obtener_todos()),
-        "active_simulations": len(gestor_simulaciones.listar()),
-    })
+    return jsonify({"status": "ok"})
 
 @app.route('/health/kafka')
 def health_kafka():
@@ -269,8 +316,8 @@ def health_kafka():
 
 @app.route('/health/osrm')
 def health_osrm():
-    from config import ARUBA_LANDMARKS as _LM, OSRM_PROFILE as _PROF, OSRM_URL as _URL
-    from osrm_client import osrm_disponible as _disp, osrm_route as _route
+    from config import ARUBA_LANDMARKS as _LM, OSRM_PROFILE as _PROF
+    from osrm_client import osrm_estado as _estado, osrm_route as _route
     if len(_LM) < 2:
         return jsonify({"ok": False, "error": "no hay landmarks"}), 500
     a = (_LM[0][1], _LM[0][2])
@@ -281,10 +328,10 @@ def health_osrm():
         ruta = _route(a, b)
     except Exception as exc:
         error = repr(exc)
+    estado = _estado()
     return jsonify({
-        "url": _URL,
         "profile": _PROF,
-        "disponible": _disp(),
+        **estado,
         "origen": {"nombre": _LM[0][0], "lat": a[0], "lon": a[1]},
         "destino": {"nombre": _LM[1][0], "lat": b[0], "lon": b[1]},
         "puntos_ruta": len(ruta) if ruta else 0,
@@ -314,6 +361,15 @@ def health_inventory():
             "ok": False,
             "error": repr(exc),
         }), 500
+
+@app.route('/health/events_trace')
+def health_events_trace():
+    limite = int(request.args.get('limit', '50'))
+    return jsonify({
+        "trace": fleet.traza_eventos(limite=limite),
+        "incidentes_total": len(fleet.listado_incidentes()),
+        "asignaciones": dict(fleet.asignaciones),
+    })
 
 @app.route('/health/fleet')
 def health_fleet():
@@ -400,25 +456,22 @@ def openapi():
         return Response("OpenAPI spec no encontrada", status=404, mimetype='text/plain')
     with open(ruta, 'r', encoding='utf-8') as f:
         contenido = f.read()
-    return Response(contenido, mimetype='application/yaml')
+    return Response(contenido, mimetype='text/plain; charset=utf-8')
 
 @app.route('/vehicles/status')
 def vehicles_status():
     vehiculos = fleet.estado_resumen()
-    activos = sum(1 for v in vehiculos
-                  if v.get('escenario', {}).get('en_progreso'))
-    coste_total = sum(v.get('costes', {}).get('coste_total_eur', 0.0)
-                      for v in vehiculos)
-    por_tipo = {}
+    by_type: dict = {}
+    by_status: dict = {}
     for v in vehiculos:
-        por_tipo[v['tipo']] = por_tipo.get(v['tipo'], 0) + 1
-
+        tipo = str(v.get('tipo') or 'unknown')
+        status = _map_status_vehicle(v)
+        by_type[tipo] = by_type.get(tipo, 0) + 1
+        by_status[status] = by_status.get(status, 0) + 1
     return jsonify({
         "total": len(vehiculos),
-        "activos": activos,
-        "coste_total_eur": round(coste_total, 2),
-        "por_tipo": por_tipo,
-        "vehiculos": vehiculos,
+        "by_type": by_type,
+        "by_status": by_status,
     })
 
 @app.route('/vehicles')
@@ -427,17 +480,23 @@ def list_vehicles():
     vehiculos = fleet.estado_resumen()
     if tipo:
         vehiculos = [v for v in vehiculos if v.get('tipo') == tipo]
-    return jsonify({"vehicles": vehiculos, "total": len(vehiculos)})
+    return jsonify({"vehicles": [_map_vehicle(v) for v in vehiculos]})
 
 @app.route('/vehicles/<vehicle_id>')
 def get_vehicle(vehicle_id):
     veh = fleet.obtener_vehiculo(vehicle_id)
     if not veh:
-        return jsonify({"error": "Vehiculo no encontrado"}), 404
+        return jsonify({
+            "detail": [{
+                "loc": ["path", "vehicle_id"],
+                "msg": "Vehicle not found",
+                "type": "value_error.not_found",
+            }]
+        }), 404
     estado = veh.obtener_estado()
     estado['nombre'] = veh.metadatos.get('nombre', veh.id)
-    estado['incidente'] = fleet._incidente_actual(veh.id)  
-    return jsonify(estado)
+    estado['incidente'] = fleet._incidente_actual(veh.id)
+    return jsonify(_map_vehicle(estado))
 
 @app.route('/incidents')
 def list_incidents():
@@ -446,6 +505,14 @@ def list_incidents():
     if estado:
         incidentes = [i for i in incidentes if i.get('status') == estado]
     return jsonify({"total": len(incidentes), "incidents": incidentes})
+
+@app.route('/_internal/vehicles')
+def internal_vehicles():
+    return jsonify({"vehicles": fleet.estado_resumen()})
+
+@app.route('/_internal/incidents')
+def internal_incidents():
+    return jsonify({"incidents": fleet.listado_incidentes()})
 
 @app.route('/simulations')
 def list_simulations():
@@ -490,33 +557,104 @@ def sim_speed(sim_id):
         return jsonify({"error": "Simulacion no encontrada"}), 404
     return jsonify(sim)
 
+def _map_station(raw: dict) -> dict:
+    if not isinstance(raw, dict):
+        return {"id": "", "name": "", "latitude": 0.0, "longitude": 0.0}
+    sid = raw.get('id') or raw.get('station_id') or raw.get('code') or ''
+    name = raw.get('name') or raw.get('label') or sid
+    lat = raw.get('latitude')
+    if lat is None:
+        lat = raw.get('lat')
+    if lat is None:
+        loc = raw.get('location') or {}
+        if isinstance(loc, dict):
+            lat = loc.get('lat') or loc.get('latitude')
+    lon = raw.get('longitude')
+    if lon is None:
+        lon = raw.get('lon') or raw.get('lng')
+    if lon is None:
+        loc = raw.get('location') or {}
+        if isinstance(loc, dict):
+            lon = loc.get('lon') or loc.get('lng') or loc.get('longitude')
+    return {
+        "id": str(sid),
+        "name": str(name),
+        "latitude": float(lat or 0.0),
+        "longitude": float(lon or 0.0),
+    }
+
+def _map_reading(raw: dict) -> dict:
+    if not isinstance(raw, dict):
+        raw = {}
+    temp = (raw.get('temperature') if raw.get('temperature') is not None
+            else raw.get('temperature_c') if raw.get('temperature_c') is not None
+            else raw.get('temp'))
+    hum = (raw.get('humidity') if raw.get('humidity') is not None
+           else raw.get('humidity_pct') if raw.get('humidity_pct') is not None
+           else raw.get('rh'))
+    wind = (raw.get('wind_speed') if raw.get('wind_speed') is not None
+            else raw.get('wind_speed_kmh') if raw.get('wind_speed_kmh') is not None
+            else raw.get('wind') if raw.get('wind') is not None
+            else raw.get('wind_kmh'))
+    ts = raw.get('timestamp') or raw.get('time') or raw.get('observed_at') or raw.get('ts')
+    if not ts:
+        ts = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+    return {
+        "temperature": float(temp or 0.0),
+        "humidity": float(hum or 0.0),
+        "wind_speed": float(wind or 0.0),
+        "timestamp": str(ts),
+    }
+
 @app.route('/weather-stations')
 def weather_stations():
-    estaciones = inventario.obtener_estaciones()
-    return jsonify({"stations": estaciones, "total": len(estaciones)})
+    estaciones = inventario.obtener_estaciones() or []
+    return jsonify({"stations": [_map_station(s) for s in estaciones]})
 
 @app.route('/weather-stations/<station_id>/reading')
 def weather_reading(station_id):
     lectura = bus.lectura_estacion(station_id)
     if not lectura:
-        return jsonify({"error": "Sin lectura disponible"}), 404
-    return jsonify(lectura)
+        return jsonify({
+            "detail": [{
+                "loc": ["path", "station_id"],
+                "msg": "No reading available for station",
+                "type": "value_error.not_found",
+            }]
+        }), 404
+    return jsonify(_map_reading(lectura))
 
 @app.route('/ask')
 def ask_fleet():
     pregunta = request.args.get('q', '').strip()
     if len(pregunta) < 3:
-        return jsonify({"error": "Pregunta demasiado corta"}), 400
+        return jsonify({
+            "detail": [{
+                "loc": ["query", "q"],
+                "msg": "ensure this value has at least 3 characters",
+                "type": "value_error.any_str.min_length",
+                "input": pregunta,
+                "ctx": {"limit_value": 3},
+            }]
+        }), 422
 
     contexto = construir_contexto_chat()
     rol = session.get('rol', 'ciudadano') if session.get('autenticado') else 'ciudadano'
 
     try:
         respuesta = responder_chat(pregunta, rol, contexto)
-        return jsonify({"answer": respuesta, "context": contexto})
+        return jsonify({
+            "answer": respuesta,
+            "confidence": None,
+            "data": contexto,
+        })
     except Exception as exc:
         logger.error("Chat error: %s", exc)
-        return jsonify({"error": "Error en el asistente"}), 500
+        return jsonify({
+            "answer": "Asistente no disponible en este momento.",
+            "confidence": 0.0,
+            "data": None,
+        }), 500
 
 @app.route('/api/context')
 def api_contexto():

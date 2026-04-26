@@ -940,3 +940,19 @@ html[data-theme="light"] .leaflet-tooltip.dt-poi-tooltip {
   border-color: rgba(0,0,0,0.14);
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
 }
+
+/* ── Botones zoom Leaflet (+/−) — modo claro ── */
+html[data-theme="light"] .leaflet-bar a,
+html[data-theme="light"] .leaflet-bar a:hover {
+  background-color: #ffffff !important;
+  color: #374151 !important;
+  border-bottom-color: rgba(0, 0, 0, 0.18) !important;
+}
+html[data-theme="light"] .leaflet-bar {
+  border: 2px solid rgba(0, 0, 0, 0.22) !important;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.14) !important;
+}
+html[data-theme="light"] .leaflet-bar a:hover {
+  background-color: #f3f4f6 !important;
+  color: #111827 !important;
+}

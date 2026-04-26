@@ -316,15 +316,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   
 
-  const botonMensaje = document.getElementById('btn-mensaje-central');
-  if (botonMensaje) {
-    botonMensaje.addEventListener('click', () => {
-      const mensaje = prompt('Mensaje a difundir a la flota:');
-      if (!mensaje) return;
-      socket.emit('control_incidente', { accion: 'mensaje', mensaje });
-    });
-  }
-
   // Boton "+ unidad": agrega un vehiculo permanente a la flota (sin limite).
   // Usa la ruta REST /fleet/units (protegida con requerir_operador).
   const botonAddUnidad = document.getElementById('btn-add-unit');

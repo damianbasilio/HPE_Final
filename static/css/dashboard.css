@@ -397,6 +397,7 @@
   justify-content: space-between;
   padding: 2px 0;
   border-bottom: 1px dashed rgba(255, 255, 255, 0.04);
+  color: #b8cad8;
 }
 
 .detail-row .label {
@@ -405,6 +406,13 @@
 
 .detail-row .value {
   font-family: var(--font-mono, monospace);
+  color: #b8cad8;
+}
+
+/* Títulos y encabezados dentro del panel de detalle */
+.details-box h3,
+.details-box h4 {
+  color: #b8cad8;
 }
 
 .action-row {
@@ -828,11 +836,14 @@ html[data-theme="light"] .decision-tipo { color: #374151; }
 html[data-theme="light"] .decision-meta { color: #6b7280; }
 html[data-theme="light"] .decision-ts   { color: #9ca3af; }
 
-html[data-theme="light"] .detail-row .label { color: #4b5563; }
-html[data-theme="light"] .detail-row .value { color: #111827; }
+html[data-theme="light"] .detail-row,
+html[data-theme="light"] .detail-row .label,
+html[data-theme="light"] .detail-row .value { color: #4b5563; }
 html[data-theme="light"] .detail-row {
   border-bottom-color: rgba(0,0,0,0.07);
 }
+html[data-theme="light"] .details-box h3,
+html[data-theme="light"] .details-box h4 { color: #374151; }
 
 html[data-theme="light"] .chat-box {
   background: rgba(0,0,0,0.05);
@@ -899,30 +910,64 @@ html[data-theme="light"] .dt-card.actions .actions-divider {
 
 /* ── Marcadores POI en el mapa ── */
 .dt-poi-marker {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 2px solid;            /* color viene inline del JS */
-  background: rgba(0, 0, 0, 0.72);
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1.5px solid;          /* color viene inline del JS */
+  background: rgba(0, 0, 0, 0.65);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
   cursor: default;
   transition: transform 0.15s, box-shadow 0.15s;
 }
 .dt-poi-marker svg {
-  width: 16px;
-  height: 16px;
+  width: 11px;
+  height: 11px;
   flex-shrink: 0;
 }
 .dt-poi-marker:hover {
-  transform: scale(1.2);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
+  transform: scale(1.25);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.65);
 }
 html[data-theme="light"] .dt-poi-marker {
-  background: rgba(255, 255, 255, 0.90);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+/* ── Leaflet zoom buttons — tema oscuro ── */
+.leaflet-control-zoom a {
+  background-color: rgba(15, 23, 42, 0.85) !important;
+  color: #cbd5e1 !important;
+  border-color: rgba(255,255,255,0.14) !important;
+}
+.leaflet-control-zoom {
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5) !important;
+}
+.leaflet-control-zoom a:hover {
+  background-color: rgba(30, 41, 59, 0.95) !important;
+  color: #f1f5f9 !important;
+}
+
+/* ── Leaflet zoom buttons — tema claro ── */
+html[data-theme="light"] .leaflet-control-zoom a {
+  background-color: #ffffff !important;
+  color: #374151 !important;
+  border-color: rgba(0,0,0,0.2) !important;
+}
+html[data-theme="light"] .leaflet-control-zoom {
+  border: 1px solid rgba(0,0,0,0.2) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12) !important;
+}
+html[data-theme="light"] .leaflet-control-zoom a:hover {
+  background-color: #f3f4f6 !important;
+  color: #111827 !important;
+}
+html[data-theme="light"] .leaflet-control-attribution {
+  background: rgba(255,255,255,0.9);
+  color: #6b7280;
 }
 
 /* Tooltip de POIs */

@@ -312,12 +312,22 @@ class FleetManager:
             return None
         return self.incidentes.get(inc_id)
 
-    def actualizar(self, factor_entorno: float = 1.0) -> None:
+    def actualizar(self, factor_entorno: float = 1.0,
+                   delta_time: Optional[float] = None) -> None:
+        """Avanza la simulacion de la flota.
+
+        El parametro `delta_time` permite que el gestor de simulaciones replay
+        avance la flota en pasos virtuales (acelerado / ralentizado) sin
+        depender del intervalo real `INTERVALO_ACTUALIZACION` del bucle live.
+        """
+        dt = float(delta_time if delta_time is not None else INTERVALO_ACTUALIZACION)
+        if dt <= 0:
+            return
         factor = float(factor_entorno or 1.0)
         with self._lock:
             for veh in self.vehiculos.values():
                 veh.factor_entorno = factor
-                veh.actualizar_simulacion(delta_time=INTERVALO_ACTUALIZACION)
+                veh.actualizar_simulacion(delta_time=dt)
                 self._sincronizar_incidente(veh)
         self._despachar_cola()
 
@@ -330,6 +340,22 @@ class FleetManager:
             except Exception as exc:
                 logger.warning("Error en loop flota: %s", exc)
                 time.sleep(1)
+
+    def snapshot(self, decisiones_limit: int = 50) -> dict:
+        """Devuelve un snapshot completo del estado de la flota.
+
+        Pensado para que los gestores de simulacion (live o replay) expongan
+        toda la informacion relevante en una sola llamada: vehiculos,
+        incidentes, asignaciones y la traza reciente de decisiones.
+        """
+        with self._lock:
+            return {
+                "vehiculos": [self._estado_completo(v) for v in self.vehiculos.values()],
+                "incidentes": list(self.incidentes.values()),
+                "asignaciones": dict(self.asignaciones),
+                "decisiones": list(self._traza)[-int(max(0, decisiones_limit)):],
+                "historial_costes": list(self.historial_costes)[-50:],
+            }
 
     def _sincronizar_incidente(self, veh: VehiculoBase) -> None:
         inc_id = self.asignaciones.get(veh.id)

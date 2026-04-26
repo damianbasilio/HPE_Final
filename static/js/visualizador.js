@@ -27,75 +27,89 @@ document.addEventListener('DOMContentLoaded', () => {
     socket = { on: () => {}, emit: () => {} };
   }
 
-  let estadoActual = { vehiculos: [], incidentes: [] };
+  // -------------------------------------------------------------------
+  // Fuente activa: 'live' (estado real via socket/REST) o un sim_id replay.
+  // Cuando se inicia un replay, dejamos de pintar el live y empezamos a
+  // tirar del snapshot de la simulacion replay aislada.
+  // -------------------------------------------------------------------
+  let fuenteActiva = 'live';
   let simActiva = null;
   let pollSimTimer = null;
+  let estadoActual = { vehiculos: [], incidentes: [], decisiones: [], factor_clima: 1.0, clima_actual: null };
   let datosRecibidos = false;
 
   socket.on('connect', () => actualizarConexion(true));
   socket.on('disconnect', () => actualizarConexion(false));
 
   setTimeout(() => {
-    if (!datosRecibidos) {
+    if (!datosRecibidos && fuenteActiva === 'live') {
       console.warn('[visualizador] Socket.IO sin datos en 3s, recurriendo a REST');
       cargarDatosRest();
-      setInterval(cargarDatosRest, 5000);
+      setInterval(() => { if (fuenteActiva === 'live') cargarDatosRest(); }, 5000);
     }
   }, 3000);
 
   async function cargarDatosRest() {
     try {
-      const [resV, resI] = await Promise.all([
-        fetch('/_internal/vehicles'),
-        fetch('/_internal/incidents'),
-      ]);
-      if (!resV.ok || !resI.ok) return;
-      const dV = await resV.json();
-      const dI = await resI.json();
-      estadoActual = {
-        vehiculos: Array.isArray(dV) ? dV : (dV.vehicles || dV.vehiculos || []),
-        incidentes: Array.isArray(dI) ? dI : (dI.incidents || dI.incidentes || []),
-      };
-      panel.actualizarFlota(estadoActual);
-      renderListaUnidades();
-      renderListaIncidentes();
-      renderResumen();
-      if (panel.seleccionado) renderDetalle(panel.seleccionado);
+      const res = await fetch('/simulations/live/snapshot');
+      if (!res.ok) return;
+      const data = await res.json();
+      aplicarSnapshot(data);
     } catch (err) {
       console.warn('[visualizador] cargarDatosRest fallo:', err);
     }
   }
 
-  socket.on('estado_inicial', (data) => {
-    datosRecibidos = true;
+  function aplicarSnapshot(data) {
     estadoActual = {
       vehiculos: data.vehiculos || [],
       incidentes: data.incidentes || [],
+      decisiones: data.decisiones || [],
+      factor_clima: data.factor_clima ?? 1.0,
+      clima_actual: data.clima_actual || null,
+      modo: data.modo,
+      virtual_now: data.virtual_now,
+      sim_id: data.sim_id,
     };
     panel.actualizarFlota(estadoActual);
     renderListaUnidades();
     renderListaIncidentes();
     renderResumen();
+    renderDecisiones();
+    renderClima();
+    renderModo();
+    if (panel.seleccionado) renderDetalle(panel.seleccionado);
+  }
+
+  socket.on('estado_inicial', (data) => {
+    if (fuenteActiva !== 'live') return;
+    datosRecibidos = true;
+    aplicarSnapshot({
+      vehiculos: data.vehiculos || [],
+      incidentes: data.incidentes || [],
+      decisiones: [],
+      modo: 'tiempo_real',
+      sim_id: 'live',
+    });
   });
 
   socket.on('actualizacion_flotas', (data) => {
+    if (fuenteActiva !== 'live') return;
     datosRecibidos = true;
-    estadoActual = {
+    aplicarSnapshot({
       vehiculos: data.vehiculos || [],
       incidentes: data.incidentes || [],
-    };
-    panel.actualizarFlota(estadoActual);
-    renderListaUnidades();
-    renderListaIncidentes();
-    renderResumen();
-    if (panel.seleccionado) renderDetalle(panel.seleccionado);
+      decisiones: estadoActual.decisiones,
+      modo: 'tiempo_real',
+      sim_id: 'live',
+      factor_clima: estadoActual.factor_clima,
+      clima_actual: estadoActual.clima_actual,
+    });
   });
 
   socket.on('mensaje_central', (data) => {
     mostrarFlash(`[${data.remitente}] ${data.mensaje}`, 'info', 6000);
   });
-
-  
 
   function actualizarConexion(ok) {
     const dot = document.getElementById('ws-status-dot');
@@ -111,6 +125,51 @@ document.addEventListener('DOMContentLoaded', () => {
     const activos = v.filter((u) => u.escenario && u.escenario.en_progreso).length;
     setText('flota-total', total);
     setText('flota-activos', activos);
+  }
+
+  function renderModo() {
+    const modo = (estadoActual.modo || 'tiempo_real').toUpperCase();
+    setText('modo-actual', modo === 'TIEMPO_REAL' ? 'LIVE' : 'REPLAY');
+    const cursor = estadoActual.virtual_now ? new Date(estadoActual.virtual_now).toLocaleString() : '--';
+    setText('modo-cursor', cursor);
+  }
+
+  function renderClima() {
+    const factor = estadoActual.factor_clima ?? 1.0;
+    setText('factor-clima', `x${Number(factor).toFixed(2)}`);
+    const clima = estadoActual.clima_actual;
+    let desc = '--';
+    if (clima && clima.condicion) {
+      desc = `${clima.condicion.descripcion || ''} (${clima.condicion.condiciones_conduccion || ''})`;
+    }
+    setText('clima-desc', desc);
+  }
+
+  function renderDecisiones() {
+    const cont = document.getElementById('decisiones-lista');
+    if (!cont) return;
+    const decisiones = (estadoActual.decisiones || []).slice(-30).reverse();
+    if (!decisiones.length) {
+      cont.innerHTML = '<p class="muted">Sin decisiones aun.</p>';
+      return;
+    }
+    cont.innerHTML = decisiones.map((d) => {
+      const ts = d.ts ? new Date(d.ts).toLocaleTimeString() : '';
+      const decision = (d.decision || '').toLowerCase();
+      const cls = decision === 'asignado' ? 'ok'
+        : decision === 'cola' ? 'warn'
+        : decision === 'descartado' ? 'muted'
+        : decision === 'error' ? 'error'
+        : 'info';
+      return `<div class="decision-row decision-${cls}">
+        <div class="decision-head">
+          <span class="decision-tipo">${d.tipo || '--'}</span>
+          <span class="decision-action">${d.decision || '--'}</span>
+          <span class="decision-ts">${ts}</span>
+        </div>
+        <div class="decision-meta">${(d.motivo || '').slice(0, 160)}</div>
+      </div>`;
+    }).join('');
   }
 
   function renderListaUnidades() {
@@ -208,19 +267,24 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
   }
 
-  
+  // -------------------------------------------------------------------
+  // Replay controls
+  // -------------------------------------------------------------------
 
   const formReplay = document.getElementById('replay-form');
   if (formReplay) {
     formReplay.addEventListener('submit', async (e) => {
       e.preventDefault();
       const ts = document.getElementById('replay-ts').value;
+      const tsEnd = document.getElementById('replay-end').value;
       const sp = parseFloat(document.getElementById('replay-speed').value || '5');
+      const body = { started_at: ts, speed: sp };
+      if (tsEnd) body.end_at = tsEnd;
       try {
         const res = await fetch('/simulations/replay', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ started_at: ts, speed: sp }),
+          body: JSON.stringify(body),
         });
         const data = await res.json();
         if (data.error) {
@@ -228,7 +292,9 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
         simActiva = data;
-        renderEstadoSim();
+        fuenteActiva = data.sim_id;
+        habilitarControlesReplay(true);
+        mostrarFlash(`Replay iniciado: ${data.sim_id}`, 'ok');
         startPollSim();
       } catch (err) {
         mostrarFlash('Error iniciando replay', 'error');
@@ -240,9 +306,47 @@ document.addEventListener('DOMContentLoaded', () => {
   if (botonPause) {
     botonPause.addEventListener('click', async () => {
       if (!simActiva) return;
-      const res = await fetch(`/simulations/${simActiva.sim_id}/pause`, { method: 'POST' });
-      simActiva = await res.json();
-      renderEstadoSim();
+      try {
+        const res = await fetch(`/simulations/${simActiva.sim_id}/pause`, { method: 'POST' });
+        simActiva = await res.json();
+        renderEstadoSim();
+        botonPause.textContent = simActiva.estado === 'paused' ? 'Reanudar' : 'Pausa';
+      } catch (err) {
+        mostrarFlash('Error al pausar/reanudar', 'error');
+      }
+    });
+  }
+
+  const botonStop = document.getElementById('replay-stop');
+  if (botonStop) {
+    botonStop.addEventListener('click', async () => {
+      if (!simActiva) return;
+      try {
+        const res = await fetch(`/simulations/${simActiva.sim_id}/stop`, { method: 'POST' });
+        simActiva = await res.json();
+        renderEstadoSim();
+        mostrarFlash('Replay detenida. Sigue pintandose hasta que vuelvas a LIVE.', 'info');
+      } catch (err) {
+        mostrarFlash('Error al detener replay', 'error');
+      }
+    });
+  }
+
+  const botonLive = document.getElementById('replay-live');
+  if (botonLive) {
+    botonLive.addEventListener('click', () => {
+      if (simActiva) {
+        // Limpia estado del replay (lo deja en backend para historico)
+        fetch(`/simulations/${simActiva.sim_id}`, { method: 'DELETE' }).catch(() => {});
+      }
+      simActiva = null;
+      fuenteActiva = 'live';
+      habilitarControlesReplay(false);
+      stopPollSim();
+      mostrarFlash('Volviendo a tiempo real (LIVE)', 'ok');
+      cargarDatosRest();
+      const cont = document.getElementById('replay-estado');
+      if (cont) cont.innerHTML = '<p class="muted">Mostrando estado en tiempo real (LIVE)</p>';
     });
   }
 
@@ -252,48 +356,96 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!simActiva) return;
       const speed = parseFloat(inputSpeed.value);
       if (isNaN(speed)) return;
-      const res = await fetch(`/simulations/${simActiva.sim_id}/speed`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ speed }),
-      });
-      simActiva = await res.json();
-      renderEstadoSim();
+      try {
+        const res = await fetch(`/simulations/${simActiva.sim_id}/speed`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ speed }),
+        });
+        simActiva = await res.json();
+        renderEstadoSim();
+      } catch (err) {
+        mostrarFlash('Error cambiando velocidad', 'error');
+      }
+    });
+  }
+
+  function habilitarControlesReplay(activo) {
+    const ids = ['replay-pause', 'replay-stop', 'replay-live'];
+    ids.forEach((id) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.disabled = !activo;
     });
   }
 
   function startPollSim() {
-    if (pollSimTimer) clearInterval(pollSimTimer);
+    stopPollSim();
+    // Tick rapido para que la UI siga el reloj virtual del replay
     pollSimTimer = setInterval(async () => {
       if (!simActiva) return;
-      const r = await fetch(`/simulations/${simActiva.sim_id}/state`);
-      if (!r.ok) return;
-      simActiva = await r.json();
-      renderEstadoSim();
-      if (simActiva.estado === 'finished') {
-        clearInterval(pollSimTimer);
-        pollSimTimer = null;
+      try {
+        const r = await fetch(`/simulations/${simActiva.sim_id}/snapshot?decisiones=80&eventos=20`);
+        if (!r.ok) return;
+        const snap = await r.json();
+        simActiva = snap;
+        if (fuenteActiva === simActiva.sim_id) {
+          aplicarSnapshot(snap);
+        }
+        renderEstadoSim();
+        if (snap.estado === 'finished' || snap.estado === 'error') {
+          stopPollSim();
+        }
+      } catch (err) {
+        // silencioso: la red puede tener fallos puntuales
       }
-    }, 2000);
+    }, 1000);
+  }
+
+  function stopPollSim() {
+    if (pollSimTimer) {
+      clearInterval(pollSimTimer);
+      pollSimTimer = null;
+    }
   }
 
   function renderEstadoSim() {
     const cont = document.getElementById('replay-estado');
     if (!cont) return;
     if (!simActiva) {
-      cont.innerHTML = '<p class="muted">Sin replay activo</p>';
+      cont.innerHTML = '<p class="muted">Mostrando estado en tiempo real (LIVE)</p>';
       return;
     }
+    const cursor = simActiva.virtual_now ? new Date(simActiva.virtual_now).toLocaleString() : '--';
+    const desde = simActiva.started_at ? new Date(simActiva.started_at).toLocaleString() : '--';
+    const hasta = simActiva.end_at ? new Date(simActiva.end_at).toLocaleString() : '(presente)';
+    const errorHtml = simActiva.consumer_error
+      ? `<div class="replay-error">Consumer error: ${simActiva.consumer_error}</div>`
+      : '';
     cont.innerHTML = `
-      <div><strong>${simActiva.sim_id}</strong> · ${simActiva.modo}</div>
-      <div>Estado: <strong>${simActiva.estado}</strong></div>
-      <div>Velocidad: x${simActiva.velocidad}</div>
-      <div>Cursor: ${simActiva.cursor || '--'}</div>
-      <div>Eventos: ${simActiva.eventos_procesados || 0}</div>
+      <div class="replay-row">
+        <strong>${simActiva.sim_id}</strong>
+        <span class="badge replay-badge-${simActiva.estado || ''}">${simActiva.estado || '--'}</span>
+        <span>x${(simActiva.velocidad || 1).toFixed(2)}</span>
+      </div>
+      <div class="replay-row muted">
+        ${desde} &rarr; ${hasta}
+      </div>
+      <div class="replay-row">
+        Reloj virtual: <strong>${cursor}</strong>
+      </div>
+      <div class="replay-row muted">
+        Eventos ${simActiva.eventos_procesados || 0} ·
+        Clima ${simActiva.weather_procesados || 0} ·
+        Buffer ${simActiva.buffer_pendiente || 0}
+        ${simActiva.consumer_done ? '· consumer:done' : ''}
+      </div>
+      ${errorHtml}
     `;
   }
 
-  
+  // -------------------------------------------------------------------
+  // Chat asistente
+  // -------------------------------------------------------------------
 
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
@@ -324,8 +476,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
-
-  
 
   function setText(id, valor) {
     const el = document.getElementById(id);

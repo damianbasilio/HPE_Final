@@ -4,17 +4,22 @@
 
 {% block head_extra %}
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=4">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=5">
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
           onerror="this.onerror=null;var s=document.createElement('script');s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';document.head.appendChild(s);"></script>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="{{ url_for('static', filename='js/panel_flota.js') }}?v=4"></script>
-  <script src="{{ url_for('static', filename='js/visualizador.js') }}?v=4"></script>
+  <script src="{{ url_for('static', filename='js/panel_flota.js') }}?v=5"></script>
+  <script src="{{ url_for('static', filename='js/visualizador.js') }}?v=5"></script>
 {% endblock %}
 
 {% block content %}
 <div class="dt-dashboard">
   <header class="dt-summary">
+    <div class="dt-card">
+      <span class="label">Modo</span>
+      <span class="value" id="modo-actual">LIVE</span>
+      <span class="unit" id="modo-cursor">--</span>
+    </div>
     <div class="dt-card">
       <span class="label">Total flota</span>
       <span class="value" id="flota-total">--</span>
@@ -23,19 +28,31 @@
       <span class="label">Activas</span>
       <span class="value" id="flota-activos">--</span>
     </div>
+    <div class="dt-card">
+      <span class="label">Factor clima</span>
+      <span class="value" id="factor-clima">x1.00</span>
+      <span class="unit" id="clima-desc">--</span>
+    </div>
     <div class="dt-card replay">
       <form id="replay-form" class="replay-form">
-        <label>Replay desde
+        <label>Desde
           <input id="replay-ts" type="datetime-local" value="2026-04-01T00:00" required>
         </label>
-        <label>Velocidad
-          <input id="replay-speed" type="number" min="0.5" max="30" step="0.5" value="5">
+        <label>Hasta
+          <input id="replay-end" type="datetime-local" placeholder="(presente)">
         </label>
-        <button type="submit" class="btn btn-primary">Iniciar</button>
-        <button type="button" class="btn btn-ghost" id="replay-pause">Pausa/Reanudar</button>
-        <input id="replay-set-speed" type="number" min="0.5" max="30" step="0.5" value="5" placeholder="x velocidad">
+        <label>Velocidad
+          <input id="replay-speed" type="number" min="0.1" max="60" step="0.5" value="10">
+        </label>
+        <button type="submit" class="btn btn-primary">Iniciar replay</button>
+        <button type="button" class="btn btn-ghost" id="replay-pause" disabled>Pausa</button>
+        <button type="button" class="btn btn-ghost" id="replay-stop" disabled>Detener</button>
+        <button type="button" class="btn btn-ghost" id="replay-live" disabled>Volver a LIVE</button>
+        <label>x
+          <input id="replay-set-speed" type="number" min="0.1" max="60" step="0.5" value="10">
+        </label>
       </form>
-      <div id="replay-estado" class="replay-estado"><p class="muted">Sin replay activo</p></div>
+      <div id="replay-estado" class="replay-estado"><p class="muted">Mostrando estado en tiempo real (LIVE)</p></div>
     </div>
   </header>
 
@@ -48,6 +65,12 @@
       <section class="panel">
         <h2>Incidentes</h2>
         <div id="incidentes-lista" class="incidentes-list"></div>
+      </section>
+      <section class="panel">
+        <h2>Decisiones del despacho</h2>
+        <div id="decisiones-lista" class="decisiones-list">
+          <p class="muted">Sin decisiones aun.</p>
+        </div>
       </section>
     </aside>
 

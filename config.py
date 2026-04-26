@@ -84,6 +84,16 @@ KAFKA_TOPIC_EVENTOS = os.getenv('KAFKA_TOPIC_EVENTOS', 'aruba.events')
 KAFKA_OFFSET_CLIMA = os.getenv('KAFKA_OFFSET_CLIMA', 'latest').lower()
 KAFKA_OFFSET_EVENTOS = os.getenv('KAFKA_OFFSET_EVENTOS', 'earliest').lower()
 
+# Fecha de referencia desde la que el bus Kafka conserva todo el historico.
+# Las simulaciones replay solo permiten arrancar desde esta fecha (incluida)
+# en adelante, tal como exige el pliego.
+REPLAY_FECHA_MIN = os.getenv('REPLAY_FECHA_MIN', '2026-04-01T00:00:00Z')
+
+# Limite operativo para velocidades de replay y duracion maxima por defecto.
+REPLAY_VELOCIDAD_MIN = float(os.getenv('REPLAY_VELOCIDAD_MIN', 0.1))
+REPLAY_VELOCIDAD_MAX = float(os.getenv('REPLAY_VELOCIDAD_MAX', 60.0))
+REPLAY_TICK_VIRTUAL_SEG = float(os.getenv('REPLAY_TICK_VIRTUAL_SEG', 0.5))
+
 TIEMPO_SESION = int(os.getenv('TIEMPO_SESION', 3600))
 
 MAX_PUNTOS_RASTRO = int(os.getenv('MAX_PUNTOS_RASTRO', 100))

@@ -256,8 +256,10 @@ def proteger_vistas():
         'health', 'health_kafka', 'health_kafka_probe', 'health_inventory',
         'health_fleet', 'health_osrm', 'health_events_trace',
         'openapi', 'vehicles_status', 'list_vehicles', 'get_vehicle',
-        'list_incidents', 'list_simulations', 'sim_replay', 'sim_state', 'sim_pause',
-        'sim_speed', 'ask_fleet', 'weather_stations', 'weather_reading', 'index',
+        'list_incidents', 'list_simulations', 'sim_replay', 'sim_state',
+        'sim_snapshot', 'sim_pause', 'sim_speed', 'sim_stop', 'sim_eliminar',
+        'sim_decisions', 'sim_weather', 'sim_config',
+        'ask_fleet', 'weather_stations', 'weather_reading', 'index',
         'login', 'static', 'ciudadano', 'api_contexto',
         'internal_vehicles', 'internal_incidents',
         'costs_summary', 'costs_rates', 'costs_incidents', 'costs_vehicle',
@@ -686,20 +688,41 @@ def costs_estimate():
 def list_simulations():
     return jsonify({"simulations": gestor_simulaciones.listar()})
 
+@app.route('/simulations/config')
+def sim_config():
+    fecha_min = gestor_simulaciones.fecha_minima()
+    from config import REPLAY_VELOCIDAD_MAX, REPLAY_VELOCIDAD_MIN
+    return jsonify({
+        "fecha_minima": fecha_min.isoformat(),
+        "velocidad_min": REPLAY_VELOCIDAD_MIN,
+        "velocidad_max": REPLAY_VELOCIDAD_MAX,
+        "topics_disponibles": ['aruba.weather', 'aruba.events'],
+        "ahora": _ahora_iso_ms(),
+    })
+
 @app.route('/simulations/replay', methods=['POST'])
 def sim_replay():
     payload = request.get_json(silent=True) or {}
     started_at = payload.get('started_at')
     if not started_at:
         return jsonify({"error": "Falta 'started_at' (ISO 8601)"}), 400
-    speed = float(payload.get('speed', 5))
+    end_at = payload.get('end_at')
+    try:
+        speed = float(payload.get('speed', 5))
+    except (TypeError, ValueError):
+        return jsonify({"error": "'speed' debe ser numerico"}), 400
     topics = payload.get('topics') or ['aruba.weather', 'aruba.events']
 
     try:
-        sim = gestor_simulaciones.iniciar_replay(started_at, speed=speed, topics=topics)
+        sim = gestor_simulaciones.iniciar_replay(
+            started_at, end_at_iso=end_at, speed=speed, topics=topics,
+        )
         return jsonify(sim)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.exception("[Sim] Fallo al iniciar replay: %s", exc)
+        return jsonify({"error": f"No se pudo iniciar la simulacion: {exc}"}), 500
 
 @app.route('/simulations/<sim_id>/state')
 def sim_state(sim_id):
@@ -707,6 +730,56 @@ def sim_state(sim_id):
     if not sim:
         return jsonify({"error": "Simulacion no encontrada"}), 404
     return jsonify(sim)
+
+@app.route('/simulations/<sim_id>/snapshot')
+def sim_snapshot(sim_id):
+    try:
+        decisiones_limit = int(request.args.get('decisiones', '50'))
+    except (TypeError, ValueError):
+        decisiones_limit = 50
+    try:
+        eventos_limit = int(request.args.get('eventos', '50'))
+    except (TypeError, ValueError):
+        eventos_limit = 50
+
+    sim = gestor_simulaciones.snapshot(
+        sim_id,
+        decisiones_limit=decisiones_limit,
+        eventos_limit=eventos_limit,
+    )
+    if not sim:
+        return jsonify({"error": "Simulacion no encontrada"}), 404
+    return jsonify(sim)
+
+@app.route('/simulations/<sim_id>/decisions')
+def sim_decisions(sim_id):
+    try:
+        limite = int(request.args.get('limit', '100'))
+    except (TypeError, ValueError):
+        limite = 100
+    sim = gestor_simulaciones.snapshot(sim_id, decisiones_limit=limite)
+    if not sim:
+        return jsonify({"error": "Simulacion no encontrada"}), 404
+    return jsonify({
+        "sim_id": sim_id,
+        "modo": sim.get('modo'),
+        "virtual_now": sim.get('virtual_now'),
+        "decisiones": sim.get('decisiones', []),
+    })
+
+@app.route('/simulations/<sim_id>/weather')
+def sim_weather(sim_id):
+    sim = gestor_simulaciones.snapshot(sim_id, decisiones_limit=0, eventos_limit=20)
+    if not sim:
+        return jsonify({"error": "Simulacion no encontrada"}), 404
+    return jsonify({
+        "sim_id": sim_id,
+        "modo": sim.get('modo'),
+        "virtual_now": sim.get('virtual_now'),
+        "factor_clima": sim.get('factor_clima'),
+        "clima_actual": sim.get('clima_actual'),
+        "lecturas_recientes": sim.get('eventos_recientes', []),
+    })
 
 @app.route('/simulations/<sim_id>/pause', methods=['POST'])
 def sim_pause(sim_id):
@@ -720,10 +793,27 @@ def sim_speed(sim_id):
     payload = request.get_json(silent=True) or {}
     if 'speed' not in payload:
         return jsonify({"error": "Falta 'speed'"}), 400
-    sim = gestor_simulaciones.set_velocidad(sim_id, float(payload['speed']))
+    try:
+        nueva_velocidad = float(payload['speed'])
+    except (TypeError, ValueError):
+        return jsonify({"error": "'speed' debe ser numerico"}), 400
+    sim = gestor_simulaciones.set_velocidad(sim_id, nueva_velocidad)
     if not sim:
         return jsonify({"error": "Simulacion no encontrada"}), 404
     return jsonify(sim)
+
+@app.route('/simulations/<sim_id>/stop', methods=['POST'])
+def sim_stop(sim_id):
+    sim = gestor_simulaciones.detener(sim_id)
+    if sim is None:
+        return jsonify({"error": "Simulacion no encontrada o no detenible"}), 404
+    return jsonify(sim)
+
+@app.route('/simulations/<sim_id>', methods=['DELETE'])
+def sim_eliminar(sim_id):
+    if not gestor_simulaciones.eliminar(sim_id):
+        return jsonify({"error": "Simulacion no encontrada o no eliminable"}), 404
+    return jsonify({"ok": True, "sim_id": sim_id})
 
 def _map_station(raw: dict) -> dict:
     if not isinstance(raw, dict):

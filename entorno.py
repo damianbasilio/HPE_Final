@@ -14,12 +14,20 @@ def configurar_bus(kafka_bus) -> None:
     global _bus
     _bus = kafka_bus
 
-def _interpretar_clima(lectura: dict) -> dict:
+def interpretar_clima(lectura: dict) -> dict:
+    """Interpreta una lectura de clima cruda y devuelve un contexto enriquecido.
+
+    Es publica porque la usan tanto el contexto en tiempo real como las
+    simulaciones replay (que reconstruyen su propio factor climatico a
+    partir del histórico de Kafka).
+    """
+    if not isinstance(lectura, dict):
+        lectura = {}
     temp = lectura.get("temperature_c")
-    viento = lectura.get("wind_speed_kmh", 0)
-    lluvia = lectura.get("precipitation_mm", 0)
-    visibilidad = lectura.get("visibility_km", 100)
-    uv = lectura.get("uv_index", 0)
+    viento = lectura.get("wind_speed_kmh", 0) or 0
+    lluvia = lectura.get("precipitation_mm", 0) or 0
+    visibilidad = lectura.get("visibility_km", 100) or 100
+    uv = lectura.get("uv_index", 0) or 0
 
     factor = 1.0
     condiciones = "buenas"
@@ -80,7 +88,7 @@ def obtener_contexto_entorno_completo() -> Optional[dict]:
     if not lectura:
         return None
 
-    clima = _interpretar_clima(lectura)
+    clima = interpretar_clima(lectura)
     eventos = _bus.eventos_recientes(50)
     alertas = []
 

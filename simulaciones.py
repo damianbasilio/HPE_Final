@@ -1,243 +1,710 @@
+"""Gestion de simulaciones (live + replay).
 
+Proporciona dos modos:
 
+* `live` (tiempo real): vista del estado actual de la flota y del bus Kafka,
+  consultable a traves de la misma API que las replays.
+* `replay`: re-ejecuta el histórico del bus Kafka desde una fecha pasada
+  (>= REPLAY_FECHA_MIN, por defecto 2026-04-01) hasta una fecha objetivo,
+  reconstruyendo:
+    - un FleetManager *aislado* (los vehiculos parten de un estado inicial
+      simulado y NO afectan al sistema en produccion),
+    - el factor climatico derivado del topic `aruba.weather`,
+    - la cadena de decisiones tomadas por el despacho ante los eventos del
+      topic `aruba.events`,
+  con reloj virtual configurable (acelerar / ralentizar / pausar) y
+  posicionamiento del consumidor por timestamp (offsets_for_times).
+
+El usuario puede consultar el estado completo (`snapshot`) en cualquier
+momento, modificar la velocidad, pausar/reanudar y detener la simulacion.
+"""
+
+from __future__ import annotations
+
+import heapq
 import json
 import logging
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from collections import deque
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional, Tuple
+
+from config import (
+    KAFKA_TOPIC_CLIMA,
+    KAFKA_TOPIC_EVENTOS,
+    REPLAY_FECHA_MIN,
+    REPLAY_TICK_VIRTUAL_SEG,
+    REPLAY_VELOCIDAD_MAX,
+    REPLAY_VELOCIDAD_MIN,
+)
+from entorno import interpretar_clima
+from flota import FleetManager
 
 logger = logging.getLogger(__name__)
 
+
+def _ahora_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _parsear_iso(valor) -> Optional[datetime]:
+    """Convierte un valor ISO-8601 (o datetime) a datetime UTC con tz."""
     if not valor:
         return None
     if isinstance(valor, datetime):
         return valor.astimezone(timezone.utc) if valor.tzinfo else valor.replace(tzinfo=timezone.utc)
     try:
-        s = str(valor).replace('Z', '+00:00')
+        s = str(valor).replace('Z', '+00:00').strip()
         dt = datetime.fromisoformat(s)
         return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except (ValueError, TypeError):
         return None
 
-class SimulacionReplay:
-    def __init__(self, sim_id: str, started_at: datetime, speed: float, topics: List[str], fleet, bus):
-        self.sim_id = sim_id
-        self.modo = 'replay'
-        self.started_at = started_at
-        self.speed = max(0.5, min(30.0, speed))
-        self.topics = list(topics)
-        self.estado = 'starting'
-        self.eventos_procesados = 0
-        self.cursor = started_at
-        self.iniciado_en = datetime.utcnow()
-        self.terminado_en = None
 
+def _ts_evento(valor: dict, ts_kafka_ms: Optional[int]) -> Optional[datetime]:
+    """Extrae el timestamp logico de un mensaje Kafka.
+
+    Prioriza los campos del payload (`started_at`, `timestamp`, `observed_at`...)
+    y usa el `record.timestamp` del broker como fallback.
+    """
+    if isinstance(valor, dict):
+        for clave in ('started_at', 'timestamp', 'observed_at', 'time',
+                      'created_at', 'ts'):
+            ts = _parsear_iso(valor.get(clave))
+            if ts:
+                return ts
+    if ts_kafka_ms and ts_kafka_ms > 0:
+        try:
+            return datetime.fromtimestamp(ts_kafka_ms / 1000.0, tz=timezone.utc)
+        except (ValueError, OSError):
+            return None
+    return None
+
+
+def _es_lectura_clima(valor: dict) -> bool:
+    if not isinstance(valor, dict):
+        return False
+    if valor.get('station_id') and (
+        valor.get('temperature_c') is not None
+        or valor.get('humidity_pct') is not None
+        or valor.get('precipitation_mm') is not None
+        or valor.get('wind_speed_kmh') is not None
+    ):
+        return True
+    return False
+
+
+def _validar_velocidad(speed: float) -> float:
+    try:
+        s = float(speed)
+    except (TypeError, ValueError):
+        s = 1.0
+    return max(REPLAY_VELOCIDAD_MIN, min(REPLAY_VELOCIDAD_MAX, s))
+
+
+# Marca usada en heapq para desempatar timestamps iguales y mantener el orden
+# de llegada (sin comparar dicts, que no son ordenables en Python 3).
+_secuencia_global = 0
+_secuencia_lock = threading.Lock()
+
+
+def _siguiente_secuencia() -> int:
+    global _secuencia_global
+    with _secuencia_lock:
+        _secuencia_global += 1
+        return _secuencia_global
+
+
+class _SimulacionBase:
+    """Interfaz comun para simulaciones live y replay."""
+
+    sim_id: str = ""
+    modo: str = ""
+
+    def estado_dict(self) -> dict:  # pragma: no cover - implementada por subclases
+        raise NotImplementedError
+
+    def snapshot(self, decisiones_limit: int = 50,
+                 eventos_limit: int = 50) -> dict:  # pragma: no cover
+        raise NotImplementedError
+
+
+class SimulacionTiempoReal(_SimulacionBase):
+    """Vista del estado en tiempo real del sistema en produccion."""
+
+    def __init__(self, fleet: FleetManager, bus):
+        self.sim_id = "live"
+        self.modo = "tiempo_real"
         self._fleet = fleet
         self._bus = bus
+        self._iniciado = _ahora_utc()
+
+    def _factor_clima_actual(self) -> Tuple[float, Optional[dict]]:
+        try:
+            lectura = self._bus.ultimo_clima()
+        except Exception:
+            lectura = None
+        if not lectura:
+            return 1.0, None
+        clima = interpretar_clima(lectura)
+        factor = float(clima.get('condicion', {}).get('factor_velocidad', 1.0) or 1.0)
+        return factor, clima
+
+    def estado_dict(self) -> dict:
+        factor, clima = self._factor_clima_actual()
+        weather_cache = list(getattr(self._bus, '_weather_cache', []) or [])
+        events_cache = list(getattr(self._bus, '_events_cache', []) or [])
+        return {
+            "sim_id": self.sim_id,
+            "modo": self.modo,
+            "estado": "running",
+            "velocidad": 1.0,
+            "started_at": self._iniciado.isoformat(),
+            "virtual_now": _ahora_utc().isoformat(),
+            "cursor": _ahora_utc().isoformat(),
+            "topics": [KAFKA_TOPIC_CLIMA, KAFKA_TOPIC_EVENTOS],
+            "factor_clima": round(factor, 3),
+            "clima_actual": clima,
+            "eventos_procesados": len(events_cache),
+            "weather_procesados": len(weather_cache),
+            "vehiculos_total": len(self._fleet.vehiculos),
+            "incidentes_total": len(self._fleet.incidentes),
+            "buffer_pendiente": 0,
+            "iniciado_en": self._iniciado.isoformat(),
+            "terminado_en": None,
+        }
+
+    def snapshot(self, decisiones_limit: int = 50, eventos_limit: int = 50) -> dict:
+        snap = self._fleet.snapshot(decisiones_limit=decisiones_limit)
+        try:
+            eventos_recientes = list(self._bus.eventos_recientes(eventos_limit))
+        except Exception:
+            eventos_recientes = []
+        return {
+            **self.estado_dict(),
+            "vehiculos": snap["vehiculos"],
+            "incidentes": snap["incidentes"],
+            "asignaciones": snap["asignaciones"],
+            "decisiones": snap["decisiones"],
+            "eventos_recientes": eventos_recientes,
+        }
+
+
+class SimulacionReplay(_SimulacionBase):
+    """Replay aislado del histórico Kafka.
+
+    Usa un FleetManager privado para no contaminar el estado en produccion.
+    El reloj virtual avanza a velocidad `speed` (1.0 = tiempo real).
+    """
+
+    def __init__(self, sim_id: str, started_at: datetime,
+                 end_at: Optional[datetime], speed: float, topics: List[str]):
+        self.sim_id = sim_id
+        self.modo = "replay"
+        self.started_at = started_at
+        self.end_at = end_at
+        self.speed = _validar_velocidad(speed)
+        self.topics = list(topics)
+
+        self._fleet = FleetManager()
+
+        self._virtual_now = started_at
+        self._iniciado = _ahora_utc()
+        self._terminado: Optional[datetime] = None
+        self.estado = "starting"
+
+        self._buffer: List[Tuple[datetime, int, str, dict]] = []
+        self._buffer_lock = threading.Lock()
+        self._consumer_done = False
+        self._consumer_error: Optional[str] = None
+
+        self._weather_by_station: Dict[str, dict] = {}
+        self._weather_cache: deque = deque(maxlen=200)
+        self._factor_clima = 1.0
+        self._clima_actual: Optional[dict] = None
+
+        self.eventos_procesados = 0
+        self.weather_procesados = 0
+        self.eventos_descartados = 0
+
         self._stop = threading.Event()
         self._pause = threading.Event()
         self._lock = threading.Lock()
-        self._hilo = threading.Thread(target=self._run, daemon=True)
 
-    def iniciar(self):
-        self._hilo.start()
+        self._consumer_thread = threading.Thread(
+            target=self._loop_consumer, daemon=True, name=f"replay-cons-{sim_id}",
+        )
+        self._player_thread = threading.Thread(
+            target=self._loop_player, daemon=True, name=f"replay-play-{sim_id}",
+        )
 
-    def pausar(self):
-        with self._lock:
-            if self.estado == 'running':
-                self._pause.set()
-                self.estado = 'paused'
-            elif self.estado == 'paused':
-                self._pause.clear()
-                self.estado = 'running'
+    # ------------------------------------------------------------------
+    # API publica
 
-    def detener(self):
+    def iniciar(self) -> None:
+        self._consumer_thread.start()
+        self._player_thread.start()
+
+    def detener(self) -> None:
         self._stop.set()
         self._pause.clear()
 
-    def set_velocidad(self, speed: float):
-        self.speed = max(0.5, min(30.0, float(speed)))
+    def alternar_pausa(self) -> str:
+        if self._pause.is_set():
+            self._pause.clear()
+            self.estado = "running"
+        else:
+            self._pause.set()
+            self.estado = "paused"
+        return self.estado
+
+    def set_velocidad(self, speed: float) -> float:
+        self.speed = _validar_velocidad(speed)
+        return self.speed
 
     def estado_dict(self) -> dict:
+        with self._buffer_lock:
+            pendientes = len(self._buffer)
         return {
             "sim_id": self.sim_id,
             "modo": self.modo,
             "estado": self.estado,
             "velocidad": self.speed,
             "started_at": self.started_at.isoformat(),
-            "cursor": self.cursor.isoformat() if self.cursor else None,
+            "end_at": self.end_at.isoformat() if self.end_at else None,
+            "virtual_now": self._virtual_now.isoformat(),
+            "cursor": self._virtual_now.isoformat(),
+            "topics": list(self.topics),
+            "factor_clima": round(self._factor_clima, 3),
+            "clima_actual": self._clima_actual,
             "eventos_procesados": self.eventos_procesados,
-            "topics": self.topics,
-            "iniciado_en": self.iniciado_en.isoformat() + 'Z',
-            "terminado_en": self.terminado_en.isoformat() + 'Z' if self.terminado_en else None,
+            "weather_procesados": self.weather_procesados,
+            "eventos_descartados": self.eventos_descartados,
+            "vehiculos_total": len(self._fleet.vehiculos),
+            "incidentes_total": len(self._fleet.incidentes),
+            "buffer_pendiente": pendientes,
+            "consumer_done": self._consumer_done,
+            "consumer_error": self._consumer_error,
+            "iniciado_en": self._iniciado.isoformat(),
+            "terminado_en": self._terminado.isoformat() if self._terminado else None,
         }
 
-    def _run(self):
+    def snapshot(self, decisiones_limit: int = 50, eventos_limit: int = 50) -> dict:
+        snap = self._fleet.snapshot(decisiones_limit=decisiones_limit)
+        return {
+            **self.estado_dict(),
+            "vehiculos": snap["vehiculos"],
+            "incidentes": snap["incidentes"],
+            "asignaciones": snap["asignaciones"],
+            "decisiones": snap["decisiones"],
+            "eventos_recientes": list(self._weather_cache)[-eventos_limit:],
+        }
+
+    # ------------------------------------------------------------------
+    # Consumidor Kafka
+
+    def _crear_consumer(self):
+        from kafka import KafkaConsumer, TopicPartition
+        from kafka_bus import _kafka_common_config
+
+        consumer = KafkaConsumer(
+            group_id=None,
+            enable_auto_commit=False,
+            value_deserializer=lambda v: json.loads(v.decode('utf-8', errors='replace')),
+            consumer_timeout_ms=0,
+            session_timeout_ms=15000,
+            request_timeout_ms=40000,
+            api_version_auto_timeout_ms=10000,
+            **_kafka_common_config(),
+        )
+
+        tps: List = []
+        for topic in self.topics:
+            try:
+                particiones = consumer.partitions_for_topic(topic) or set()
+            except Exception as exc:
+                logger.warning("[%s] partitions_for_topic(%s) fallo: %s",
+                               self.sim_id, topic, exc)
+                particiones = set()
+            for p in sorted(particiones):
+                tps.append(TopicPartition(topic, p))
+
+        if not tps:
+            consumer.close()
+            raise RuntimeError(
+                f"No hay particiones disponibles para los topics {self.topics}. "
+                "Comprueba que el bus Kafka esta accesible."
+            )
+
+        consumer.assign(tps)
+
+        # Posicionar el consumidor por timestamp para no leer eventos
+        # anteriores al started_at (la organizacion conserva todo el historico).
+        ts_ms = int(self.started_at.timestamp() * 1000)
         try:
-            from kafka_bus import _kafka_common_config
-            from kafka import KafkaConsumer, TopicPartition
+            offsets = consumer.offsets_for_times({tp: ts_ms for tp in tps})
         except Exception as exc:
-            logger.warning("[%s] Replay no disponible (kafka import): %s", self.sim_id, exc)
-            self.estado = 'finished'
+            logger.warning("[%s] offsets_for_times fallo (%s); seek_to_beginning",
+                           self.sim_id, exc)
+            offsets = {}
+
+        for tp in tps:
+            meta = (offsets or {}).get(tp)
+            if meta is not None and getattr(meta, 'offset', None) is not None:
+                consumer.seek(tp, meta.offset)
+            else:
+                # No hay registros en o despues del timestamp pedido.
+                # Ir al final para no leer mensajes anteriores.
+                consumer.seek_to_end(tp)
+
+        logger.info(
+            "[%s] Consumer replay listo: %d particiones, seek a %s (%d ms)",
+            self.sim_id, len(tps), self.started_at.isoformat(), ts_ms,
+        )
+        return consumer
+
+    def _loop_consumer(self) -> None:
+        consumer = None
+        try:
+            consumer = self._crear_consumer()
+        except Exception as exc:
+            logger.exception("[%s] No se pudo crear consumer: %s", self.sim_id, exc)
+            self._consumer_error = repr(exc)
+            self._consumer_done = True
+            self.estado = "error"
             return
 
         try:
-            consumer = KafkaConsumer(
-                group_id=f"replay-{self.sim_id}",
-                auto_offset_reset='earliest',
-                enable_auto_commit=False,
-                value_deserializer=lambda v: json.loads(v.decode('utf-8')),
-                consumer_timeout_ms=5000,
-                **_kafka_common_config()
-            )
-            consumer.subscribe(self.topics)
+            ralenti = 0
+            while not self._stop.is_set():
+                if self.end_at and self._virtual_now >= self.end_at:
+                    break
 
-            self.estado = 'running'
-            logger.info("[%s] Replay arrancado desde %s a x%.1f", self.sim_id,
-                        self.started_at.isoformat(), self.speed)
+                try:
+                    polled = consumer.poll(timeout_ms=1000, max_records=500)
+                except Exception as exc:
+                    logger.warning("[%s] poll fallo: %s", self.sim_id, exc)
+                    self._consumer_error = repr(exc)
+                    time.sleep(1.0)
+                    continue
+
+                if not polled:
+                    ralenti += 1
+                    # Si ya hemos consumido todo el histórico y hace rato que
+                    # no entran mensajes, marcamos consumer_done para que
+                    # el player pueda decidir si terminar.
+                    if ralenti >= 5:
+                        self._consumer_done = True
+                    time.sleep(0.3)
+                    continue
+
+                ralenti = 0
+                aniadidos = 0
+                for tp, registros in polled.items():
+                    topic = tp.topic
+                    for record in registros:
+                        valor = record.value
+                        if not isinstance(valor, dict):
+                            valor = {"raw": valor}
+                        ts = _ts_evento(valor, getattr(record, 'timestamp', None))
+                        if ts is None:
+                            ts = self._virtual_now
+                        if ts < self.started_at:
+                            self.eventos_descartados += 1
+                            continue
+                        if self.end_at and ts > self.end_at:
+                            self.eventos_descartados += 1
+                            continue
+                        self._buffer_push(topic, valor, ts)
+                        aniadidos += 1
+
+                if aniadidos:
+                    logger.debug("[%s] Consumer + %d eventos (buffer=%d)",
+                                 self.sim_id, aniadidos, len(self._buffer))
+        except Exception as exc:
+            logger.exception("[%s] Loop consumer fallo: %s", self.sim_id, exc)
+            self._consumer_error = repr(exc)
+        finally:
+            self._consumer_done = True
+            try:
+                if consumer is not None:
+                    consumer.close()
+            except Exception:
+                pass
+
+    def _buffer_push(self, topic: str, valor: dict, ts: datetime) -> None:
+        seq = _siguiente_secuencia()
+        with self._buffer_lock:
+            heapq.heappush(self._buffer, (ts, seq, topic, valor))
+
+    def _buffer_pop_si(self, limite: datetime) -> Optional[Tuple[datetime, str, dict]]:
+        with self._buffer_lock:
+            if not self._buffer:
+                return None
+            if self._buffer[0][0] > limite:
+                return None
+            ts, _seq, topic, valor = heapq.heappop(self._buffer)
+        return ts, topic, valor
+
+    # ------------------------------------------------------------------
+    # Player (avanza reloj virtual y procesa eventos)
+
+    def _loop_player(self) -> None:
+        try:
+            self.estado = "running"
+            logger.info(
+                "[%s] Player replay arrancado. start=%s end=%s speed=%.2f",
+                self.sim_id, self.started_at.isoformat(),
+                self.end_at.isoformat() if self.end_at else "(presente)",
+                self.speed,
+            )
+
+            tick_virtual = max(0.05, float(REPLAY_TICK_VIRTUAL_SEG))
+            ult_real = time.monotonic()
+            acumulador = 0.0
 
             while not self._stop.is_set():
                 if self._pause.is_set():
-                    time.sleep(0.5)
+                    self.estado = "paused"
+                    time.sleep(0.2)
+                    ult_real = time.monotonic()
                     continue
+                self.estado = "running"
 
-                msgs = consumer.poll(timeout_ms=1000)
-                if not msgs:
-                    self.estado = 'finished'
-                    self.terminado_en = datetime.utcnow()
+                ahora_real = time.monotonic()
+                dt_real = max(0.0, ahora_real - ult_real)
+                ult_real = ahora_real
+
+                acumulador += dt_real * self.speed
+
+                pasos = 0
+                while acumulador >= tick_virtual and pasos < 200 and not self._stop.is_set():
+                    nuevo_virtual = self._virtual_now + timedelta(seconds=tick_virtual)
+                    if self.end_at and nuevo_virtual > self.end_at:
+                        nuevo_virtual = self.end_at
+                    self._virtual_now = nuevo_virtual
+
+                    self._procesar_eventos_hasta(self._virtual_now)
+                    self._fleet.actualizar(
+                        factor_entorno=self._factor_clima,
+                        delta_time=tick_virtual,
+                    )
+
+                    acumulador -= tick_virtual
+                    pasos += 1
+
+                    if self.end_at and self._virtual_now >= self.end_at:
+                        break
+
+                if self._debe_terminar():
                     break
 
-                for _, registros in msgs.items():
-                    for record in registros:
-                        if self._stop.is_set():
-                            break
-                        valor = record.value
-                        ts = _parsear_iso(
-                            (valor or {}).get('started_at') or (valor or {}).get('timestamp')
-                        )
-                        if ts and ts < self.started_at:
-                            continue
-
-                        self.cursor = ts or self.cursor
-                        self._procesar(valor)
-                        self.eventos_procesados += 1
-
-                        time.sleep(max(0.0, 1.0 / self.speed))
+                time.sleep(0.1)
         except Exception as exc:
-            logger.exception("[%s] Replay fallo: %s", self.sim_id, exc)
+            logger.exception("[%s] Player replay fallo: %s", self.sim_id, exc)
         finally:
+            self.estado = "finished"
+            self._terminado = _ahora_utc()
+            logger.info(
+                "[%s] Replay finalizado: %d eventos, %d weather, virtual=%s",
+                self.sim_id, self.eventos_procesados, self.weather_procesados,
+                self._virtual_now.isoformat(),
+            )
+
+    def _debe_terminar(self) -> bool:
+        if self.end_at and self._virtual_now >= self.end_at:
+            with self._buffer_lock:
+                vacio = not self._buffer
+            return vacio
+        if self._consumer_done:
+            with self._buffer_lock:
+                vacio = not self._buffer
+            if vacio and self._virtual_now >= _ahora_utc():
+                return True
+        return False
+
+    def _procesar_eventos_hasta(self, limite: datetime) -> int:
+        procesados = 0
+        # En cada tick procesamos todos los mensajes cuyo timestamp ya ha
+        # llegado segun el reloj virtual.
+        while True:
+            item = self._buffer_pop_si(limite)
+            if not item:
+                break
+            ts, topic, valor = item
             try:
-                consumer.close()
-            except Exception:
-                pass
-            if self.estado != 'finished':
-                self.estado = 'finished'
-            self.terminado_en = self.terminado_en or datetime.utcnow()
-            logger.info("[%s] Replay finalizado tras %d eventos",
-                        self.sim_id, self.eventos_procesados)
+                self._procesar_mensaje(topic, valor, ts)
+            except Exception as exc:
+                logger.warning("[%s] Error procesando mensaje (%s): %s",
+                               self.sim_id, topic, exc)
+            procesados += 1
+        return procesados
 
-    def _procesar(self, valor: dict):
+    def _procesar_mensaje(self, topic: str, valor: dict, ts: datetime) -> None:
+        if topic == KAFKA_TOPIC_CLIMA or _es_lectura_clima(valor):
+            self._procesar_clima(valor)
+            return
+        if topic == KAFKA_TOPIC_EVENTOS:
+            self._procesar_evento(valor)
+            return
+        # Topic desconocido: lo tratamos como evento si tiene tipo + coords
+        self._procesar_evento(valor)
 
+    def _procesar_clima(self, valor: dict) -> None:
         if not isinstance(valor, dict):
             return
-
-        station_id = valor.get('station_id')
-        if station_id and (
-            valor.get('temperature_c') is not None
-            or valor.get('humidity_pct') is not None
-            or valor.get('precipitation_mm') is not None
-        ):
-            try:
-                self._bus._weather_cache.append(valor)
-                self._bus._weather_by_station[station_id] = valor
-            except Exception:
-                pass
-            return
-
-        tiene_coords = any(
-            valor.get(k) is not None
-            for k in ('latitude', 'longitude', 'lat', 'lon', 'lng', 'location', 'coordinates', 'geometry')
+        station = valor.get('station_id')
+        if station:
+            self._weather_by_station[station] = valor
+        self._weather_cache.append(valor)
+        self.weather_procesados += 1
+        clima = interpretar_clima(valor)
+        self._clima_actual = clima
+        self._factor_clima = float(
+            clima.get('condicion', {}).get('factor_velocidad', 1.0) or 1.0
         )
-        tipo = valor.get('type') or valor.get('event_type') or valor.get('incident_type')
-        if tipo and tiene_coords:
-            valor = dict(valor)
-            valor['origen'] = f'replay:{self.sim_id}'
-            self._fleet.manejar_evento(valor)
+
+    def _procesar_evento(self, valor: dict) -> None:
+        if not isinstance(valor, dict):
+            return
+        marcado = dict(valor)
+        marcado['origen'] = f"replay:{self.sim_id}"
+        try:
+            self._fleet.manejar_evento(marcado)
+        except Exception as exc:
+            logger.warning("[%s] manejar_evento fallo: %s", self.sim_id, exc)
+            return
+        self.eventos_procesados += 1
+
 
 class GestorSimulaciones:
-    def __init__(self, fleet, bus):
+    """Coordina la simulacion live + el conjunto de replays activas."""
+
+    def __init__(self, fleet: FleetManager, bus):
         self._fleet = fleet
         self._bus = bus
         self._lock = threading.Lock()
-        self._simulaciones: Dict[str, SimulacionReplay] = {}
-        self._tiempo_real = self._construir_tiempo_real()
+        self._replays: Dict[str, SimulacionReplay] = {}
+        self._tiempo_real = SimulacionTiempoReal(fleet, bus)
+        self._fecha_minima = _parsear_iso(REPLAY_FECHA_MIN) or datetime(
+            2026, 4, 1, tzinfo=timezone.utc
+        )
 
-    def _construir_tiempo_real(self) -> dict:
-        return {
-            "sim_id": "live",
-            "modo": "tiempo_real",
-            "estado": "running",
-            "velocidad": 1.0,
-            "started_at": datetime.utcnow().isoformat() + 'Z',
-            "cursor": None,
-            "eventos_procesados": None,
-            "topics": ["aruba.weather", "aruba.events"]
-        }
+    # ------------------------------------------------------------------
+
+    def fecha_minima(self) -> datetime:
+        return self._fecha_minima
 
     def listar(self) -> List[dict]:
         with self._lock:
-            return [self._tiempo_real] + [s.estado_dict() for s in self._simulaciones.values()]
+            replays = [s.estado_dict() for s in self._replays.values()]
+        return [self._tiempo_real.estado_dict()] + replays
 
     def estado(self, sim_id: str) -> Optional[dict]:
         if sim_id == 'live':
-            return self._tiempo_real
+            return self._tiempo_real.estado_dict()
         with self._lock:
-            sim = self._simulaciones.get(sim_id)
-            return sim.estado_dict() if sim else None
+            sim = self._replays.get(sim_id)
+        return sim.estado_dict() if sim else None
 
-    def iniciar_replay(self, started_at_iso: str, speed: float = 5.0,
+    def snapshot(self, sim_id: str, decisiones_limit: int = 50,
+                 eventos_limit: int = 50) -> Optional[dict]:
+        if sim_id == 'live':
+            return self._tiempo_real.snapshot(decisiones_limit=decisiones_limit,
+                                              eventos_limit=eventos_limit)
+        with self._lock:
+            sim = self._replays.get(sim_id)
+        if not sim:
+            return None
+        return sim.snapshot(decisiones_limit=decisiones_limit,
+                            eventos_limit=eventos_limit)
+
+    # ------------------------------------------------------------------
+
+    def iniciar_replay(self, started_at_iso: str,
+                       end_at_iso: Optional[str] = None,
+                       speed: float = 5.0,
                        topics: Optional[List[str]] = None) -> dict:
         started = _parsear_iso(started_at_iso)
         if not started:
             raise ValueError("started_at no es ISO 8601 valido")
+        if started < self._fecha_minima:
+            raise ValueError(
+                f"started_at no puede ser anterior a {self._fecha_minima.isoformat()} "
+                "(retencion del topic Kafka)"
+            )
 
-        topics = topics or ['aruba.weather', 'aruba.events']
+        end = _parsear_iso(end_at_iso) if end_at_iso else None
+        if end and end <= started:
+            raise ValueError("end_at debe ser posterior a started_at")
+        if end and end > _ahora_utc() + timedelta(minutes=1):
+            # Limitar al presente: replay no puede ir al futuro real.
+            end = None
+
+        topics_norm = topics or [KAFKA_TOPIC_CLIMA, KAFKA_TOPIC_EVENTOS]
         sim_id = f"sim-{uuid.uuid4().hex[:8]}"
-        sim = SimulacionReplay(sim_id, started, speed, topics, self._fleet, self._bus)
+
+        sim = SimulacionReplay(sim_id, started, end, speed, topics_norm)
         with self._lock:
-            self._simulaciones[sim_id] = sim
+            self._replays[sim_id] = sim
         sim.iniciar()
+        logger.info(
+            "[GestorSim] Replay %s creado start=%s end=%s speed=%.2f topics=%s",
+            sim_id, started.isoformat(),
+            end.isoformat() if end else "(presente)", sim.speed, topics_norm,
+        )
         return sim.estado_dict()
 
     def alternar_pausa(self, sim_id: str) -> Optional[dict]:
         if sim_id == 'live':
-            return self._tiempo_real
+            return self._tiempo_real.estado_dict()
         with self._lock:
-            sim = self._simulaciones.get(sim_id)
+            sim = self._replays.get(sim_id)
         if not sim:
             return None
-        sim.pausar()
+        sim.alternar_pausa()
         return sim.estado_dict()
 
     def set_velocidad(self, sim_id: str, speed: float) -> Optional[dict]:
         if sim_id == 'live':
-            return self._tiempo_real
+            return self._tiempo_real.estado_dict()
         with self._lock:
-            sim = self._simulaciones.get(sim_id)
+            sim = self._replays.get(sim_id)
         if not sim:
             return None
         sim.set_velocidad(speed)
         return sim.estado_dict()
 
-    def detener(self, sim_id: str) -> bool:
+    def detener(self, sim_id: str) -> Optional[dict]:
+        if sim_id == 'live':
+            return None
+        with self._lock:
+            sim = self._replays.get(sim_id)
+        if not sim:
+            return None
+        sim.detener()
+        return sim.estado_dict()
+
+    def eliminar(self, sim_id: str) -> bool:
         if sim_id == 'live':
             return False
         with self._lock:
-            sim = self._simulaciones.get(sim_id)
+            sim = self._replays.pop(sim_id, None)
         if not sim:
             return False
         sim.detener()
         return True
+
+    def purgar_terminadas(self, antes_de_segundos: int = 3600) -> int:
+        """Elimina simulaciones replay finalizadas hace mas de N segundos."""
+        umbral = _ahora_utc() - timedelta(seconds=max(0, antes_de_segundos))
+        eliminadas = 0
+        with self._lock:
+            for sid in list(self._replays.keys()):
+                sim = self._replays[sid]
+                if sim.estado in ('finished', 'error') and sim._terminado and sim._terminado < umbral:
+                    self._replays.pop(sid, None)
+                    eliminadas += 1
+        return eliminadas

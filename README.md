@@ -234,12 +234,6 @@ El gestor consume Kafka desde el offset adecuado y reinyecta eventos al `FleetMa
 
 ---
 
-## Demo
-
-URL: por confirmar.
-
----
-
 ## Licencia
 
 Proyecto realizado por el equipo **52Sec** para HPE 2026.

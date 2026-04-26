@@ -4,24 +4,16 @@
 
 {% block head_extra %}
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=6">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=7">
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
           onerror="this.onerror=null;var s=document.createElement('script');s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';document.head.appendChild(s);"></script>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="{{ url_for('static', filename='js/panel_flota.js') }}?v=6"></script>
-  <script src="{{ url_for('static', filename='js/operador.js') }}?v=6"></script>
+  <script src="{{ url_for('static', filename='js/panel_flota.js') }}?v=7"></script>
+  <script src="{{ url_for('static', filename='js/operador.js') }}?v=7"></script>
 {% endblock %}
 
 {% block content %}
 <div class="dt-dashboard dt-dashboard-operador" data-consola="operador">
-  <header class="dt-console-banner banner-operador">
-    <div class="banner-rol">
-      <span class="banner-rol-tag">OPERADOR</span>
-      <span class="banner-rol-sub">Control activo &mdash; asignar, cerrar incidentes y gestionar flota</span>
-    </div>
-    <span class="banner-rol-perms">control total</span>
-  </header>
-
   <header class="dt-summary">
     <div class="dt-card">
       <span class="label">Total flota</span>
@@ -39,7 +31,8 @@
       <button class="btn btn-ghost" data-apoyo="dron">+ dron scout</button>
       <button class="btn btn-primary" id="btn-mensaje-central">Mensaje a flota</button>
       <span class="actions-divider" aria-hidden="true"></span>
-      <button class="btn btn-ghost" id="btn-add-unit" title="Agregar unidad permanente">+ unidad</button>
+      <button class="btn btn-ghost" id="btn-add-unit" title="Agregar unidad permanente a la flota (sin limite)">Agregar unidad</button>
+      <button class="btn btn-danger" id="btn-remove-unit" title="Eliminar la unidad seleccionada">Eliminar seleccionada</button>
     </div>
   </header>
 

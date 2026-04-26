@@ -6,7 +6,10 @@ document.addEventListener('DOMContentLoaded', () => {
     panel = new window.PanelFlota({
       idMapa: 'mapa-flota',
       modo: 'visualizador',
-      onSeleccion: (id) => renderDetalle(id),
+      onSeleccion: (id) => {
+        renderDetalle(id);
+        renderListaUnidades();
+      },
     });
   } catch (err) {
     console.error('[visualizador] PanelFlota fallo, sigo sin mapa:', err);
@@ -162,6 +165,13 @@ document.addEventListener('DOMContentLoaded', () => {
       cont.innerHTML = '<p class="muted">Sin decisiones aun.</p>';
       return;
     }
+    const decisionLabels = {
+      asignado: 'Asignado',
+      cola: 'En cola',
+      descartado: 'Descartado',
+      error: 'Error',
+      ignorado: 'Ignorado',
+    };
     cont.innerHTML = decisiones.map((d) => {
       const ts = d.ts ? new Date(d.ts).toLocaleTimeString() : '';
       const decision = (d.decision || '').toLowerCase();
@@ -170,15 +180,25 @@ document.addEventListener('DOMContentLoaded', () => {
         : decision === 'descartado' ? 'muted'
         : decision === 'error' ? 'error'
         : 'info';
+      const tipoLabel = window.etiquetaIncidentType(d.tipo);
+      const decisionLabel = decisionLabels[decision] || (d.decision ? d.decision.charAt(0).toUpperCase() + d.decision.slice(1) : '--');
       return `<div class="decision-row decision-${cls}">
         <div class="decision-head">
-          <span class="decision-tipo">${d.tipo || '--'}</span>
-          <span class="decision-action">${d.decision || '--'}</span>
+          <span class="decision-tipo">${tipoLabel}</span>
+          <span class="decision-action">${decisionLabel}</span>
           <span class="decision-ts">${ts}</span>
         </div>
         <div class="decision-meta">${(d.motivo || '').slice(0, 160)}</div>
       </div>`;
     }).join('');
+  }
+
+  function _estadoUnidadTexto(u) {
+    const esc = u.escenario || {};
+    if (esc.en_camino) return 'En ruta a incidente';
+    if (esc.en_escena) return 'Atendiendo en escena';
+    if (esc.en_progreso) return u.incidente?.title || 'En intervencion';
+    return window.etiquetaEstadoVehiculo(esc.activo);
   }
 
   function renderListaUnidades() {
@@ -198,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="header">
           <span class="dot" style="background:${meta.color}"></span>
           <span class="operador">${u.nombre || u.id}</span>
-          <span class="status ${activo ? 'busy' : 'free'}">${u.escenario?.activo || '--'}</span>
+          <span class="status ${activo ? 'busy' : 'free'}">${_estadoUnidadTexto(u)}</span>
         </div>
         <div class="info">
           <span>${(u.velocidad || 0).toFixed(0)} km/h</span>
@@ -211,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
     cont.querySelectorAll('.vehicle-card').forEach((card) => {
       card.addEventListener('click', () => {
         panel.seleccionarUnidad(card.dataset.id);
-        panel.centrarEn(card.dataset.id);
+        if (panel.seleccionado) panel.centrarEn(card.dataset.id);
         renderListaUnidades();
       });
     });
@@ -229,13 +249,13 @@ document.addEventListener('DOMContentLoaded', () => {
     cont.innerHTML = inc.map((i) => `
       <div class="incident-card sev-${i.severity || 'medium'}">
         <div class="incident-head">
-          <strong>${i.title || i.incident_type}</strong>
-          <span class="badge">${i.severity || 'medium'}</span>
+          <strong>${i.title || window.etiquetaIncidentType(i.incident_type)}</strong>
+          <span class="badge">${window.etiquetaSeveridad(i.severity || 'medium')}</span>
         </div>
         <div class="incident-meta">
-          ${i.unidad_nombre || '--'} | ETA ${window.fmtETA(i.eta_seg)} | ${i.distancia_km || 0} km
+          ${i.unidad_nombre || 'Sin unidad'} &middot; ETA ${window.fmtETA(i.eta_seg)} &middot; ${i.distancia_km || 0} km
         </div>
-        <div class="incident-status">${i.incident_status || i.status || '--'}</div>
+        <div class="incident-status">${window.etiquetaIncidentStatus(i.incident_status || i.status)}</div>
       </div>
     `).join('');
   }
@@ -243,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderDetalle(id) {
     const cont = document.getElementById('detalle-unidad');
     if (!cont) return;
-    const u = estadoActual.vehiculos.find((v) => v.id === id);
+    const u = id ? estadoActual.vehiculos.find((v) => v.id === id) : null;
     if (!u) {
       cont.innerHTML = '<p>Selecciona una unidad para ver detalles.</p>';
       return;
@@ -253,24 +273,25 @@ document.addEventListener('DOMContentLoaded', () => {
     ).join('');
 
     const incHtml = u.incidente ? `
-      <h4>Incidente</h4>
-      <div class="detail-row"><span class="label">Tipo</span><span class="value">${u.incidente.incident_type || '--'}</span></div>
-      <div class="detail-row"><span class="label">Estado</span><span class="value">${u.incidente.incident_status}</span></div>
-      <div class="detail-row"><span class="label">ETA</span><span class="value">${window.fmtETA(u.incidente.eta_seg)}</span></div>
-      <div class="detail-row"><span class="label">Severidad</span><span class="value">${u.incidente.severity}</span></div>
+      <h4>Incidente asignado</h4>
+      <div class="detail-row"><span class="label">Tipo</span><span class="value">${window.etiquetaIncidentType(u.incidente.incident_type)}</span></div>
+      <div class="detail-row"><span class="label">Estado</span><span class="value">${window.etiquetaIncidentStatus(u.incidente.incident_status)}</span></div>
+      <div class="detail-row"><span class="label">Tiempo estimado</span><span class="value">${window.fmtETA(u.incidente.eta_seg)}</span></div>
+      <div class="detail-row"><span class="label">Severidad</span><span class="value">${window.etiquetaSeveridad(u.incidente.severity)}</span></div>
     ` : '';
 
     cont.innerHTML = `
       <h3>${u.nombre || u.id}</h3>
-      <div class="detail-row"><span class="label">Tipo</span><span class="value">${u.tipo}/${u.propulsion}</span></div>
+      <div class="detail-row"><span class="label">Tipo de unidad</span><span class="value">${window.etiquetaTipo(u.tipo)} &middot; ${window.etiquetaEnergia(u.propulsion)}</span></div>
+      <div class="detail-row"><span class="label">Estado</span><span class="value">${_estadoUnidadTexto(u)}</span></div>
       <div class="detail-row"><span class="label">Velocidad</span><span class="value">${window.fmtNum(u.velocidad, 0)} km/h</span></div>
-      <div class="detail-row"><span class="label">Combustible</span><span class="value">${window.fmtNum(u.combustible, 1)} %</span></div>
-      <div class="detail-row"><span class="label">Temperatura</span><span class="value">${window.fmtNum(u.temperatura_motor, 0)} C</span></div>
-      <div class="detail-row"><span class="label">Km totales</span><span class="value">${window.fmtNum(u.km_totales, 0)}</span></div>
-      <div class="detail-row"><span class="label">Factor entorno</span><span class="value">x${window.fmtNum(u.factor_entorno || 1, 2)}</span></div>
-      <h4>Coste operativo de esta unidad</h4>
+      <div class="detail-row"><span class="label">Combustible / Bateria</span><span class="value">${window.fmtNum(u.combustible, 1)} %</span></div>
+      <div class="detail-row"><span class="label">Temperatura del motor</span><span class="value">${window.fmtNum(u.temperatura_motor, 0)} &deg;C</span></div>
+      <div class="detail-row"><span class="label">Kilometros totales</span><span class="value">${window.fmtNum(u.km_totales, 0)} km</span></div>
+      <div class="detail-row"><span class="label">Factor de entorno</span><span class="value">x${window.fmtNum(u.factor_entorno || 1, 2)}</span></div>
+      <h4>Coste operativo</h4>
       ${window.renderCosteUnidad(u)}
-      <h4>Especializado</h4>
+      <h4>Telemetria especializada</h4>
       ${esp}
       ${incHtml}
     `;

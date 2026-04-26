@@ -6,7 +6,10 @@ document.addEventListener('DOMContentLoaded', () => {
     panel = new window.PanelFlota({
       idMapa: 'mapa-flota',
       modo: 'operador',
-      onSeleccion: (id) => renderDetalle(id),
+      onSeleccion: (id) => {
+        renderDetalle(id);
+        renderListaUnidades();
+      },
     });
   } catch (err) {
     console.error('[operador] PanelFlota fallo, sigo sin mapa:', err);
@@ -140,6 +143,14 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('flota-activos', activos);
   }
 
+  function _estadoUnidadTexto(u) {
+    const esc = u.escenario || {};
+    if (esc.en_camino) return 'En ruta a incidente';
+    if (esc.en_escena) return 'Atendiendo en escena';
+    if (esc.en_progreso) return u.incidente?.title || 'En intervencion';
+    return window.etiquetaEstadoVehiculo(esc.activo);
+  }
+
   function renderListaUnidades() {
     const cont = document.getElementById('unidades-lista');
     if (!cont) return;
@@ -157,7 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="header">
           <span class="dot" style="background:${meta.color}"></span>
           <span class="operador">${u.nombre || u.id}</span>
-          <span class="status ${activo ? 'busy' : 'free'}">${u.escenario?.activo || '--'}</span>
+          <span class="status ${activo ? 'busy' : 'free'}">${_estadoUnidadTexto(u)}</span>
         </div>
         <div class="info">
           <span>${(u.velocidad || 0).toFixed(0)} km/h</span>
@@ -170,7 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
     cont.querySelectorAll('.vehicle-card').forEach((card) => {
       card.addEventListener('click', () => {
         panel.seleccionarUnidad(card.dataset.id);
-        panel.centrarEn(card.dataset.id);
+        if (panel.seleccionado) panel.centrarEn(card.dataset.id);
         renderListaUnidades();
       });
     });
@@ -188,13 +199,13 @@ document.addEventListener('DOMContentLoaded', () => {
     cont.innerHTML = inc.map((i) => `
       <div class="incident-card sev-${i.severity || 'medium'}">
         <div class="incident-head">
-          <strong>${i.title || i.incident_type}</strong>
-          <span class="badge">${i.severity || 'medium'}</span>
+          <strong>${i.title || window.etiquetaIncidentType(i.incident_type)}</strong>
+          <span class="badge">${window.etiquetaSeveridad(i.severity || 'medium')}</span>
         </div>
         <div class="incident-meta">
-          ${i.unidad_nombre || '--'} | ETA ${window.fmtETA(i.eta_seg)} | ${i.distancia_km || 0} km
+          ${i.unidad_nombre || 'Sin unidad'} &middot; ETA ${window.fmtETA(i.eta_seg)} &middot; ${i.distancia_km || 0} km
         </div>
-        <div class="incident-status">${i.incident_status || i.status || '--'}</div>
+        <div class="incident-status">${window.etiquetaIncidentStatus(i.incident_status || i.status)}</div>
       </div>
     `).join('');
   }
@@ -202,7 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderDetalle(id) {
     const cont = document.getElementById('detalle-unidad');
     if (!cont) return;
-    const u = estadoActual.vehiculos.find((v) => v.id === id);
+    const u = id ? estadoActual.vehiculos.find((v) => v.id === id) : null;
     if (!u) {
       cont.innerHTML = '<p>Selecciona una unidad para ver detalles.</p>';
       return;
@@ -212,29 +223,31 @@ document.addEventListener('DOMContentLoaded', () => {
     ).join('');
 
     const incHtml = u.incidente ? `
-      <h4>Incidente</h4>
-      <div class="detail-row"><span class="label">Tipo</span><span class="value">${u.incidente.incident_type || '--'}</span></div>
-      <div class="detail-row"><span class="label">Estado</span><span class="value">${u.incidente.incident_status}</span></div>
-      <div class="detail-row"><span class="label">ETA</span><span class="value">${window.fmtETA(u.incidente.eta_seg)}</span></div>
-      <div class="detail-row"><span class="label">Severidad</span><span class="value">${u.incidente.severity}</span></div>
+      <h4>Incidente asignado</h4>
+      <div class="detail-row"><span class="label">Tipo</span><span class="value">${window.etiquetaIncidentType(u.incidente.incident_type)}</span></div>
+      <div class="detail-row"><span class="label">Estado</span><span class="value">${window.etiquetaIncidentStatus(u.incidente.incident_status)}</span></div>
+      <div class="detail-row"><span class="label">Tiempo estimado</span><span class="value">${window.fmtETA(u.incidente.eta_seg)}</span></div>
+      <div class="detail-row"><span class="label">Severidad</span><span class="value">${window.etiquetaSeveridad(u.incidente.severity)}</span></div>
     ` : '';
 
     cont.innerHTML = `
       <h3>${u.nombre || u.id}</h3>
-      <div class="detail-row"><span class="label">Tipo</span><span class="value">${u.tipo}/${u.propulsion}</span></div>
+      <div class="detail-row"><span class="label">Tipo de unidad</span><span class="value">${window.etiquetaTipo(u.tipo)} &middot; ${window.etiquetaEnergia(u.propulsion)}</span></div>
+      <div class="detail-row"><span class="label">Estado</span><span class="value">${_estadoUnidadTexto(u)}</span></div>
       <div class="detail-row"><span class="label">Velocidad</span><span class="value">${window.fmtNum(u.velocidad, 0)} km/h</span></div>
-      <div class="detail-row"><span class="label">Combustible</span><span class="value">${window.fmtNum(u.combustible, 1)} %</span></div>
-      <div class="detail-row"><span class="label">Temperatura</span><span class="value">${window.fmtNum(u.temperatura_motor, 0)} C</span></div>
-      <div class="detail-row"><span class="label">Km totales</span><span class="value">${window.fmtNum(u.km_totales, 0)}</span></div>
-      <div class="detail-row"><span class="label">Factor entorno</span><span class="value">x${window.fmtNum(u.factor_entorno || 1, 2)}</span></div>
-      <h4>Coste operativo de esta unidad</h4>
+      <div class="detail-row"><span class="label">Combustible / Bateria</span><span class="value">${window.fmtNum(u.combustible, 1)} %</span></div>
+      <div class="detail-row"><span class="label">Temperatura del motor</span><span class="value">${window.fmtNum(u.temperatura_motor, 0)} &deg;C</span></div>
+      <div class="detail-row"><span class="label">Kilometros totales</span><span class="value">${window.fmtNum(u.km_totales, 0)} km</span></div>
+      <div class="detail-row"><span class="label">Factor de entorno</span><span class="value">x${window.fmtNum(u.factor_entorno || 1, 2)}</span></div>
+      <h4>Coste operativo</h4>
       ${window.renderCosteUnidad(u)}
-      <h4>Especializado</h4>
+      <h4>Telemetria especializada</h4>
       ${esp}
       ${incHtml}
       <div class="action-row">
         <button class="btn btn-primary" id="btn-cerrar-${u.id}" ${u.incidente ? '' : 'disabled'}>Cerrar incidente</button>
         <button class="btn btn-ghost" id="btn-asignar-${u.id}">Asignar manual</button>
+        <button class="btn btn-danger" id="btn-eliminar-${u.id}" title="Retirar esta unidad de la flota">Eliminar unidad</button>
       </div>
     `;
 
@@ -244,6 +257,41 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     const asignar = document.getElementById(`btn-asignar-${u.id}`);
     if (asignar) asignar.addEventListener('click', () => abrirDialogoAsignacion(u));
+    const eliminar = document.getElementById(`btn-eliminar-${u.id}`);
+    if (eliminar) eliminar.addEventListener('click', () => eliminarUnidad(u));
+  }
+
+  async function eliminarUnidad(unidad) {
+    const confirma = confirm(`Eliminar la unidad ${unidad.nombre || unidad.id}? Esta accion la retira de la flota.`);
+    if (!confirma) return;
+    try {
+      const res = await fetch(`/fleet/units/${encodeURIComponent(unidad.id)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        mostrarFlash(data.error || 'No se pudo eliminar la unidad', 'error');
+        return;
+      }
+      mostrarFlash(`Unidad ${unidad.nombre || unidad.id} eliminada`, 'ok');
+      panel.seleccionarUnidad(null);
+      cargarDatosRest();
+    } catch (err) {
+      mostrarFlash('Error de red eliminando unidad', 'error');
+    }
+  }
+
+  // Boton "Eliminar seleccionada" de la barra superior
+  const botonRemoveUnidad = document.getElementById('btn-remove-unit');
+  if (botonRemoveUnidad) {
+    botonRemoveUnidad.addEventListener('click', () => {
+      const seleccion = panel.unidadActual();
+      if (!seleccion) {
+        mostrarFlash('Selecciona primero una unidad en la lista o el mapa', 'info');
+        return;
+      }
+      eliminarUnidad(seleccion);
+    });
   }
 
   function abrirDialogoAsignacion(unidad) {
@@ -289,32 +337,34 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Boton "+ unidad": agrega un vehiculo permanente a la flota.
-  // Usa la nueva ruta REST /fleet/units (protegida con requerir_operador).
+  // Boton "+ unidad": agrega un vehiculo permanente a la flota (sin limite).
+  // Usa la ruta REST /fleet/units (protegida con requerir_operador).
   const botonAddUnidad = document.getElementById('btn-add-unit');
   if (botonAddUnidad) {
     botonAddUnidad.addEventListener('click', async () => {
       const tipos = ['policia', 'ambulancia', 'bomberos', 'proteccion_civil', 'dron'];
-      const tipo = prompt(`Tipo de unidad nueva (${tipos.join(' / ')}):`, 'policia');
-      if (!tipo || !tipos.includes(tipo)) {
-        if (tipo) mostrarFlash(`Tipo no valido: ${tipo}`, 'error');
+      const tipo = (prompt(`Tipo de unidad nueva (${tipos.join(' / ')}):`, 'policia') || '').trim().toLowerCase();
+      if (!tipo) return;
+      if (!tipos.includes(tipo)) {
+        mostrarFlash(`Tipo no valido: ${tipo}`, 'error');
         return;
       }
       const propulsionDef = tipo === 'dron' ? 'unico' : 'combustion';
-      const propulsion = prompt('Propulsion (combustion / electrico / unico):', propulsionDef) || propulsionDef;
-      const nombre = prompt('Nombre identificativo (opcional):', '') || null;
+      const propulsion = (prompt('Propulsion (combustion / electrico / unico):', propulsionDef) || propulsionDef).trim().toLowerCase();
+      const nombre = (prompt('Nombre identificativo (opcional, deja vacio para autogenerar):', '') || '').trim() || null;
       try {
         const res = await fetch('/fleet/units', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tipo, propulsion, nombre }),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           mostrarFlash(data.error || 'Error agregando unidad', 'error');
           return;
         }
-        mostrarFlash(`Unidad agregada: ${data.nombre || data.id}`, 'ok');
+        const unidadInfo = data.unit || data;
+        mostrarFlash(`Unidad agregada: ${unidadInfo.nombre || unidadInfo.id}`, 'ok');
         cargarDatosRest();
       } catch (err) {
         mostrarFlash('Error de red agregando unidad', 'error');

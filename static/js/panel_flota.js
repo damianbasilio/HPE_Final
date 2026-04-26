@@ -59,6 +59,9 @@ class PanelFlota {
           attribution: 'OpenStreetMap, CARTO',
         }
       ).addTo(this.mapa);
+
+      // Click en zona vacia del mapa = deseleccionar unidad y limpiar ruta/destino
+      this.mapa.on('click', () => this.seleccionarUnidad(null));
     } catch (err) {
       console.error('[PanelFlota] error inicializando mapa:', err);
       this.mapa = null;
@@ -251,22 +254,29 @@ class PanelFlota {
 
   seleccionarUnidad(id) {
     const anterior = this.seleccionado;
-    this.seleccionado = id;
 
-    // Ocultar ruta de la unidad previamente seleccionada
-    if (anterior && anterior !== id) {
+    // Toggle: clic en la misma unidad = deseleccionar
+    const nuevoId = (id && id === anterior) ? null : id;
+    this.seleccionado = nuevoId;
+
+    // Limpiar ruta de la unidad previamente seleccionada (si la habia)
+    if (anterior && anterior !== nuevoId) {
       const antUnidad = this.flota.find((v) => v.id === anterior);
-      if (antUnidad) this._dibujarRutaIncidente(antUnidad);
+      if (antUnidad) {
+        this._dibujarRutaIncidente(antUnidad);
+      } else {
+        this._limpiarRutaUnidad(anterior);
+      }
     }
 
-    // Mostrar ruta de la nueva unidad seleccionada
-    if (id) {
-      const nuevaUnidad = this.flota.find((v) => v.id === id);
+    // Pintar ruta de la nueva unidad seleccionada
+    if (nuevoId) {
+      const nuevaUnidad = this.flota.find((v) => v.id === nuevoId);
       if (nuevaUnidad) this._dibujarRutaIncidente(nuevaUnidad);
     }
 
     if (typeof this.onSeleccion === 'function') {
-      this.onSeleccion(id);
+      this.onSeleccion(nuevoId);
     }
   }
 
@@ -323,16 +333,112 @@ const TIPO_LABELS = {
 const ENERGIA_LABELS = {
   combustion: 'Combustion',
   electrico: 'Electrico',
-  unico: 'Unico',
+  unico: 'Bateria',
 };
 
-function etiquetaTipo(tipo) {
-  return TIPO_LABELS[tipo] || tipo;
+const ESTADO_VEHICULO_LABELS = {
+  patrulla: 'En patrulla',
+  aterrizado: 'En base',
+  estacionario: 'En base',
+  reabasteciendo: 'Repostando',
+  'cambio de bateria': 'Cambio de bateria',
+};
+
+const SEVERIDAD_LABELS = {
+  low: 'Baja',
+  medium: 'Media',
+  high: 'Alta',
+  critical: 'Critica',
+};
+
+const INCIDENT_STATUS_LABELS = {
+  assigned: 'Asignado',
+  en_route: 'En camino',
+  at_scene: 'En escena',
+  on_scene: 'En escena',
+  resolved: 'Resuelto',
+  cancelled: 'Cancelado',
+  pending: 'Pendiente',
+};
+
+const INCIDENT_TYPE_LABELS = {
+  medical_emergency: 'Emergencia medica',
+  accident: 'Accidente de trafico',
+  traffic_jam: 'Atasco',
+  fire: 'Incendio',
+  hazmat_spill: 'Derrame quimico',
+  flood: 'Inundacion',
+  storm: 'Tormenta',
+  power_outage: 'Apagon',
+  earthquake: 'Terremoto',
+  marine_rescue: 'Rescate maritimo',
+  public_event: 'Evento publico',
+  crime: 'Delito',
+  manual: 'Asignacion manual',
+  incidente: 'Incidente',
+};
+
+const TRIAGE_LABELS = {
+  rojo: 'Rojo (critico)',
+  amarillo: 'Amarillo (urgente)',
+  verde: 'Verde (estable)',
+  negro: 'Negro (no recuperable)',
+};
+
+const DRONE_MODE_LABELS = {
+  scout: 'Reconocimiento',
+  seguimiento: 'Seguimiento',
+  mapeo: 'Mapeo aereo',
+  termico: 'Camara termica',
+};
+
+const DRONE_RIESGO_LABELS = {
+  ninguno: 'Ninguno',
+  bateria_critica: 'Bateria critica',
+  enlace_debil: 'Enlace debil',
+  hotspot_termico: 'Foco termico',
+};
+
+const PROTOCOLO_LABELS = {
+  armado: 'Intervencion armada',
+  perimetro: 'Perimetro de seguridad',
+  contencion: 'Contencion',
+};
+
+const MISION_PC_LABELS = {
+  evacuacion: 'Evacuacion',
+  balizamiento: 'Balizamiento',
+  apoyo: 'Apoyo logistico',
+  logistica: 'Logistica',
+};
+
+const TIPO_INCENDIO_LABELS = {
+  estructural: 'Estructural',
+  derrame: 'Derrame / Hazmat',
+  forestal: 'Forestal',
+  vehiculo: 'Vehiculo',
+  otro: 'Otro',
+};
+
+function _humanizarKey(valor) {
+  if (valor == null || valor === '') return '--';
+  const txt = String(valor).replace(/_/g, ' ').trim();
+  return txt.charAt(0).toUpperCase() + txt.slice(1);
 }
 
-function etiquetaEnergia(en) {
-  return ENERGIA_LABELS[en] || en;
+function humanizar(diccionario, valor, fallback = null) {
+  if (valor == null || valor === '') return fallback != null ? fallback : '--';
+  const key = String(valor).toLowerCase();
+  if (diccionario[key]) return diccionario[key];
+  return _humanizarKey(valor);
 }
+
+function etiquetaTipo(tipo) { return humanizar(TIPO_LABELS, tipo); }
+function etiquetaEnergia(en) { return humanizar(ENERGIA_LABELS, en); }
+function etiquetaSeveridad(s) { return humanizar(SEVERIDAD_LABELS, s); }
+function etiquetaIncidentStatus(s) { return humanizar(INCIDENT_STATUS_LABELS, s); }
+function etiquetaIncidentType(t) { return humanizar(INCIDENT_TYPE_LABELS, t); }
+function etiquetaEstadoVehiculo(s) { return humanizar(ESTADO_VEHICULO_LABELS, s, _humanizarKey(s)); }
 
 function renderCosteUnidad(unidad) {
   if (!unidad) return '<p class="muted">Selecciona una unidad para ver su coste.</p>';
@@ -394,52 +500,53 @@ function describirEspecializado(unidad) {
     case 'policia':
       return [
         ['Riesgo dinamico', fmtNum(e.riesgo_dinamico, 2)],
-        ['Protocolo', e.protocolo_contencion || '--'],
-        ['Agentes', e.agentes_operativos ?? '--'],
+        ['Protocolo', humanizar(PROTOCOLO_LABELS, e.protocolo_contencion)],
+        ['Agentes operativos', e.agentes_operativos ?? '--'],
         ['Detenidos', e.detenidos ?? 0],
-        ['Tiempo contencion', `${fmtNum(e.tiempo_contencion_s, 0)} s`],
+        ['Tiempo de contencion', `${fmtNum(e.tiempo_contencion_s, 0)} s`],
       ];
-    case 'ambulancia':
+    case 'ambulancia': {
       const sv = (e.paciente && e.paciente.signos_vitales) || {};
       return [
-        ['Soporte', e.nivel_soporte || '--'],
-        ['Oxigeno', `${fmtNum(e.oxigeno_pct, 1)} %`],
-        ['Paciente a bordo', e.paciente_a_bordo ? 'si' : 'no'],
-        ['Triage', e.paciente?.triage || '--'],
-        ['FC / SpO2', `${fmtNum(sv.fc, 0)} / ${fmtNum(sv.spo2, 0)}`],
-        ['Alertas clinicas', (e.alertas_clinicas || []).join(', ') || '--'],
-        ['Reportes', e.reportes_emitidos ?? 0],
+        ['Nivel de soporte', _humanizarKey(e.nivel_soporte)],
+        ['Oxigeno disponible', `${fmtNum(e.oxigeno_pct, 1)} %`],
+        ['Paciente a bordo', e.paciente_a_bordo ? 'Si' : 'No'],
+        ['Triage', humanizar(TRIAGE_LABELS, e.paciente?.triage)],
+        ['Frecuencia cardiaca / SpO2', `${fmtNum(sv.fc, 0)} lpm / ${fmtNum(sv.spo2, 0)} %`],
+        ['Alertas clinicas', (e.alertas_clinicas || []).map(_humanizarKey).join(', ') || 'Ninguna'],
+        ['Reportes emitidos', e.reportes_emitidos ?? 0],
       ];
+    }
     case 'bomberos':
       return [
-        ['Rol', e.rol || '--'],
-        ['Agua', `${fmtNum(e.agua_pct, 0)} %`],
-        ['Espuma', `${fmtNum(e.espuma_pct, 0)} %`],
-        ['Tipo incendio', e.tipo_incendio || '--'],
-        ['Escala', e.escala_desplegada ? 'desplegada' : 'recogida'],
-        ['Control fuego', fmtNum(e.control_fuego, 2)],
-        ['Riesgo reignicion', fmtNum(e.riesgo_reignicion, 2)],
+        ['Rol', _humanizarKey(e.rol)],
+        ['Agua disponible', `${fmtNum(e.agua_pct, 0)} %`],
+        ['Espuma disponible', `${fmtNum(e.espuma_pct, 0)} %`],
+        ['Tipo de incendio', humanizar(TIPO_INCENDIO_LABELS, e.tipo_incendio)],
+        ['Escala', e.escala_desplegada ? 'Desplegada' : 'Recogida'],
+        ['Control del fuego', fmtNum(e.control_fuego, 2)],
+        ['Riesgo de reignicion', fmtNum(e.riesgo_reignicion, 2)],
       ];
     case 'proteccion_civil':
       return [
-        ['Mision', e.mision_actual || '--'],
+        ['Mision actual', humanizar(MISION_PC_LABELS, e.mision_actual)],
         ['Kits disponibles', e.kits_disponibles ?? '--'],
-        ['Voluntarios', e.voluntarios_activos ?? '--'],
+        ['Voluntarios activos', e.voluntarios_activos ?? '--'],
         ['Evacuados', e.evacuados_total ?? 0],
         ['Centros activos', e.centros_evacuacion_activos ?? 0],
-        ['Indice estabilidad', fmtNum(e.indice_estabilidad, 2)],
+        ['Indice de estabilidad', fmtNum(e.indice_estabilidad, 2)],
         ['Alertas emitidas', e.alertas_emitidas ?? 0],
       ];
     case 'dron':
       return [
-        ['Modo', e.modo || '--'],
-        ['Altitud (m)', fmtNum(e.altitud_m, 0)],
+        ['Modo de vuelo', humanizar(DRONE_MODE_LABELS, e.modo)],
+        ['Altitud', `${fmtNum(e.altitud_m, 0)} m`],
         ['Bateria', `${fmtNum(e.bateria_pct, 0)} %`],
-        ['Link', `${fmtNum(e.link_pct, 0)} %`],
-        ['Imagenes', e.imagenes_capturadas ?? 0],
-        ['Autonomia', `${fmtNum(e.autonomia_restante_min, 1)} min`],
-        ['Objetivo', e.objetivo_bloqueado ? 'bloqueado' : 'sin lock'],
-        ['Riesgo detectado', e.riesgo_detectado || 'ninguno'],
+        ['Calidad del enlace', `${fmtNum(e.link_pct, 0)} %`],
+        ['Imagenes capturadas', e.imagenes_capturadas ?? 0],
+        ['Autonomia restante', `${fmtNum(e.autonomia_restante_min, 1)} min`],
+        ['Objetivo', e.objetivo_bloqueado ? 'Bloqueado' : 'Sin objetivo'],
+        ['Riesgo detectado', humanizar(DRONE_RIESGO_LABELS, e.riesgo_detectado, 'Ninguno')],
         ['Eventos detectados', e.eventos_detectados ?? 0],
       ];
     default:
@@ -457,3 +564,7 @@ window.describirEspecializado = describirEspecializado;
 window.renderCosteUnidad = renderCosteUnidad;
 window.etiquetaTipo = etiquetaTipo;
 window.etiquetaEnergia = etiquetaEnergia;
+window.etiquetaSeveridad = etiquetaSeveridad;
+window.etiquetaIncidentStatus = etiquetaIncidentStatus;
+window.etiquetaIncidentType = etiquetaIncidentType;
+window.etiquetaEstadoVehiculo = etiquetaEstadoVehiculo;

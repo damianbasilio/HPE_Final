@@ -1,22 +1,39 @@
 # Gemelo Digital de Aruba — Servicios de Emergencia
 
-> Plataforma de gemelo digital que modela en tiempo real la flota de emergencias de Aruba (Policia, Ambulancia, Bomberos, Proteccion Civil y Drones), integrando telemetria propia, eventos de la isla y clima a traves de buses Kafka, con interfaces de operador y visualizador, chatbot LLM y replay historico.
+> Plataforma de gemelo digital que modela en tiempo real la flota de emergencias de Aruba (Policía, Ambulancia, Bomberos, Protección Civil y Drones), integrando telemetría propia, eventos de la isla y clima a través de Kafka, interfaces de operador y visualizador, chatbot LLM con formato enriquecido, POIs del inventario Aruba en el mapa, y replay histórico.
 
-**Equipo:** 52Sec · **Convocatoria:** HPE 2026 · **Version:** 2.0
+**Equipo:** 52Sec · **Convocatoria:** HPE 2026 · **Versión:** 2.1
 
 ---
 
-## Caracteristicas
+## Características
 
-- **Multi-flota** con factory de unidades especializadas: patrullas policiales, ambulancias, camiones de bomberos, vehiculos de proteccion civil y drones de reconocimiento.
-- **Bus de eventos Kafka**: publica telemetria propia (`aruba.team.<id>`) y consume eventos (`aruba.events`) y clima (`aruba.weather`) de la isla.
-- **ETA dinamico**: la velocidad efectiva de cada unidad se modula con el factor de entorno (clima/eventos), recalculando el tiempo de llegada en tiempo real.
-- **Reconocimiento aereo opcional**: ante eventos de alto impacto se despliega automaticamente un dron scout sobre el incidente.
-- **Replay historico desde 1-abr**: el visualizador puede iniciar simulaciones reproduciendo eventos pasados con control de velocidad y pausa.
-- **Dashboard Leaflet** centrado en Aruba (12.52, -69.97) con tiles CartoDB Dark, marcadores por unidad, polilineas de ruta y trazas de movimiento.
-- **Chatbot LLM** (Qwen / Gemma compatible OpenAI) con contexto operativo en vivo (flota, incidentes, clima).
-- **API REST + OpenAPI 3.1** publicada en `/openapi.yaml` y disponible para los demas equipos.
-- **Roles diferenciados**: Operador (control multi-unidad y asignacion manual) y Visualizador (lectura global + replay).
+### Backend y datos
+
+- **Multi-flota** con unidades especializadas: patrullas, ambulancias, bomberos, protección civil y drones.
+- **Bus Kafka**: publica telemetría (`KAFKA_TOPIC_TELEMETRIA`) y consume clima (`KAFKA_TOPIC_CLIMA`) y eventos (`KAFKA_TOPIC_EVENTOS`). Los mensajes de eventos se indexan en caché (`kafka_bus.py`) para depuración y trazabilidad.
+- **Eventos en tiempo real**: al procesar un evento Kafka válido, el servidor emite de inmediato `actualizacion_flotas` por Socket.IO (mismo criterio que las actualizaciones de clima), de modo que el front no depende solo del ciclo periódico.
+- **Demo automática de incidentes** (opcional): si está activa, `generador_incidentes.py` puede inyectar incidentes simulados cuando Kafka lleva un tiempo sin eventos. Parámetros típicos (variables de entorno): `AUTO_DEMO_MIN_S`, `AUTO_DEMO_MAX_S`, `AUTO_DEMO_SILENCIO_S`, `AUTO_DEMO_MAX_ACTIVOS`.
+- **Inventario Aruba** (`inventario_aruba.py`): estaciones, POIs, carreteras y tipos; caché configurable (`CACHE_ENTORNO`).
+- **POIs operativos en mapa**: endpoint `GET /api/map/pois` devuelve puntos del inventario filtrados por relevancia (salud, bomberos, policía, combustible, puertos/aeropuertos, emergencias, etc.) con coordenadas normalizadas. El front los pinta como marcadores pequeños con iconos SVG uniformes (gris claro).
+- **ETA dinámico**: velocidad efectiva modulada por factor de entorno (clima/eventos); recálculo de ETA en vivo.
+- **Rutas**: OSRM con fallback a grafo del inventario y línea recta entre landmarks (`rutas.py`, `osrm_client.py`).
+- **Costes operativos** (`costos.py`): tarifas, resúmenes y estimaciones vía API REST bajo `/costs/...`.
+- **Seguridad / sabotaje** (`sabotaje.py`): rutas bajo `/security/sabotage` para detección y gestión orientada a pruebas de integridad de telemetría.
+- **Historial clínico** (ambulancias): rutas relacionadas en `main.py` / módulo `historial_clinico.py`.
+- **Replay histórico**: desde el 1-abr-2026, con velocidad, pausa y snapshot aislado (`simulaciones.py`).
+- **API REST + OpenAPI 3.1** en `/openapi.yaml`.
+
+### Frontend (dashboard)
+
+- **Leaflet** centrado en Aruba (~12.52, -69.97): tiles Carto **Dark** / **Light** según tema.
+- **Marcadores de unidad** con letra por tipo; **ruta** y **pin de destino** solo para la unidad seleccionada (sin círculos genéricos de incidente en el mapa que generaran residuo visual).
+- **Tema claro / oscuro**: conmutador en la barra superior, preferencia en `localStorage`, evento `tema-cambiado` para sincronizar capas del mapa.
+- **Accesibilidad**: atajos de teclado (Alt+T tema, Alt+U/I/C/M foco en listas/chat/mapa, flechas en listas, `?` ayuda, Esc).
+- **Chat asistente**: respuestas del bot renderizadas con **Marked** (markdown: negritas, listas, código, etc.); mensajes de usuario en texto plano.
+- **Responsive**: en pantallas estrechas el grid pasa a columna única con mapa arriba; listas con altura máxima y scroll; formulario de replay apilado; botones con área táctil cómoda; menú **hamburguesa** en móvil para navegación (enlaces de consola / usuario).
+- **Operador** (`simulador.html`): alta y baja de unidades vía API; sin botón “Mensaje a flota” ni botones de “apoyo” rápido en cabecera (control vía otras vías si aplica en backend).
+- **Visualizador** (`comando.html`): LIVE + replay, decisiones de despacho, clima y chat.
 
 ---
 
@@ -27,46 +44,45 @@
                                   |
         +---------------+---------+---------+---------------+
         |               |                   |               |
-   aruba.events    aruba.weather      aruba.team.52sec   ...otros equipos
+   aruba.events    aruba.weather      aruba.team.<id>   ...
         |               |                   ^
         v               v                   |
 +---------------------------------------------------------+
 |                Servidor Flask + Gevent                   |
 |                                                          |
-|  KafkaBus  --> Entorno + FleetManager                    |
+|  KafkaBus  --> hooks (clima / eventos)                  |
+|       |                                                  |
+|       +--> FleetManager (flota.py) + entorno            |
 |                  |              |                        |
 |                  v              v                        |
-|              Vehiculos     Incidentes / Asignaciones     |
+|              Vehículos     Incidentes / asignaciones     |
 |                  |              |                        |
-|                  +--> SocketIO bucle_difusion -----+     |
-|                                                    |     |
-|  IA (LLM) <-- /ask  /api/context     /openapi.yaml |     |
-|                                                    |     |
-|  GestorSimulaciones (live + replay 1-abr)          |     |
+|                  +--> Socket.IO (actualizacion_flotas,   |
+|                        clima_actualizado, mensaje_central)|
+|                                                          |
+|  InventarioAruba --> /api/map/pois, rutas, health       |
+|  IA (LLM) <-- /ask     GestorSimulaciones (replay)      |
 +---------------------------------------------------------+
                                                     |
                               Socket.IO + REST       |
                                                     v
                         +---------------+    +---------------+
                         |   Operador    |    |  Visualizador |
-                        | (multi-unidad)|    |  (replay/RO)  |
                         +---------------+    +---------------+
 ```
 
 ---
 
-## Stack tecnologico
+## Stack tecnológico
 
-| Capa | Tecnologia |
-|---|---|
-| Servidor | Python 3.11, Flask 3, Flask-Session, Flask-SocketIO + gevent |
-| Mensajeria | kafka-python (SASL_PLAINTEXT) |
-| Frontend | HTML/CSS/JS vanilla + Leaflet 1.9 + Socket.IO 4.7 |
-| Mapas/rutas | Tiles CartoDB Dark, OSRM (rutas), Haversine (interpolacion) |
-| LLM | API OpenAI-compatible (Qwen3-235B-A22B / Gemma) |
+| Capa | Tecnología |
+|------|------------|
+| Servidor | Python 3.11+, Flask 3, Flask-Session, Flask-SocketIO + gevent |
+| Mensajería | kafka-python (SASL según configuración) |
+| Frontend | HTML/CSS/JS, Leaflet 1.9, Socket.IO, **marked** (CDN) para markdown en chat |
+| Mapas / rutas | Carto basemaps (dark/light), OSRM, Haversine |
+| LLM | API compatible OpenAI (Qwen / Gemma, etc.) |
 | Empaquetado | Docker, docker-compose |
-
-Todas las dependencias son **Open Source**. Los buses externos (Aruba inventory, Kafka, LLM) son los proporcionados por la organizacion HPE 2026.
 
 ---
 
@@ -74,134 +90,139 @@ Todas las dependencias son **Open Source**. Los buses externos (Aruba inventory,
 
 ```
 HPE_Final/
-|-- main.py                  # Servidor Flask + bucle de simulacion + telemetria Kafka
-|-- config.py                # Configuracion centralizada (load_dotenv)
-|-- costos.py                # Tarifas operativas por unidad/propulsion
-|-- flota.py                 # FleetManager (factory + incidentes + scout aereo)
-|-- vehiculo_base.py         # Clase base con telemetria, GPS y escenarios
-|-- vehiculo_factory.py      # Factory que instancia la unidad correcta
-|-- vehiculo_policia.py
-|-- vehiculo_ambulancia.py
-|-- vehiculo_bomberos.py
-|-- vehiculo_proteccion_civil.py
-|-- vehiculo_dron.py
-|-- gps.py                   # SimuladorGPS (interpolacion sobre rutas)
-|-- rutas.py                 # OSRM + patrullas + clusters
-|-- entorno.py               # Cache de clima/eventos publicados por Aruba
-|-- kafka_bus.py             # Productor/consumidor Kafka
-|-- inventario_aruba.py      # Cliente del inventario de la isla
-|-- ia.py / llm_client.py    # Chat con LLM
-|-- prompts.py               # Plantillas de prompt
-|-- socketio_server.py       # Salas, broadcast y controles del operador
-|-- simulaciones.py          # Replay historico + simulacion en vivo
-|-- auth.py                  # Login y gestion de sesiones
-|-- helpers.py
-|-- apis/
-|   |-- aruba-island-inventory.json  # Contrato evaluacion Team Fleet API
-|   `-- aruba-team-api.json          # Contrato Inventory API Aruba
+|-- main.py                  # Flask, rutas, hooks Kafka, integración flota
+|-- config.py                # Variables de entorno centralizadas
+|-- kafka_bus.py             # Productor/consumidor Kafka y caché clima/eventos
+|-- flota.py                 # FleetManager, factory, incidentes, auto-demo
+|-- generador_incidentes.py  # Demo de incidentes y envoltorio de callbacks Kafka
+|-- inventario_aruba.py      # Cliente API inventario (POIs, roads, stations)
+|-- socketio_server.py       # Salas, broadcast, clima para difusión
+|-- simulaciones.py          # Live + replay histórico
+|-- entorno.py               # Clima ambiente para simulación de motores
+|-- rutas.py / osrm_client.py
+|-- gps.py
+|-- costos.py
+|-- sabotaje.py              # Endpoints de detección de sabotaje
+|-- historial_clinico.py     # Historial asociado a ambulancias
+|-- vehiculo_*.py            # Especializaciones por tipo
+|-- auth.py, helpers.py
+|-- ia.py / llm_client.py / prompts.py
 |-- static/
-|   |-- css/{style.css, dashboard.css}
-|   `-- js/{panel_flota.js, operador.js, visualizador.js}
+|   |-- css/dashboard.css    # Dashboard + temas + responsive + Leaflet/POI
+|   `-- js/
+|       |-- panel_flota.js   # Mapa, POIs, tema tiles, rutas
+|       |-- operador.js
+|       `-- visualizador.js
 |-- templates/
-|   |-- base.html  landing.html  login.html
-|   |-- simulador.html        # Vista del operador
-|   `-- comando.html          # Vista del visualizador
-|-- users.json.example
+|   |-- base.html            # Tema, teclado, hamburguesa móvil
+|   |-- simulador.html         # Operador
+|   |-- comando.html           # Visualizador
+|-- apis/                    # Contratos JSON de referencia
 |-- requirements.txt
 |-- Dockerfile
 |-- docker-compose.yml
 `-- .env.example
 ```
 
+> **Nota:** `base.html` puede referenciar `static/css/style.css` para layout global del sitio; si no está presente, el dashboard sigue funcionando con `dashboard.css` y estilos inline en `base.html`.
+
 ---
 
-## Instalacion local
+## Instalación local
 
 ```bash
 git clone <repo>
 cd HPE_Final
 
 python -m venv venv
-source venv/bin/activate          # o .\venv\Scripts\activate en Windows
+source venv/bin/activate          # Windows: .\venv\Scripts\activate
 
 pip install -r requirements.txt
 
-cp .env.example .env               # rellenar credenciales
-cp users.json.example users.json   # crear usuarios reales
+cp .env.example .env               # credenciales
+cp users.json.example users.json   # usuarios (si aplica)
 
 python main.py
 ```
 
-Servidor disponible en `http://localhost:8080`.
+Servidor por defecto: `http://localhost:8080` (ajustar `PUERTO_SERVIDOR` en `.env`).
 
-## Ejecucion en Docker
+### Docker
 
 ```bash
 cp .env.example .env
 docker compose up --build -d
 ```
 
-El compose monta `users.json`, `flask_session/` y `logs/` como volumenes y expone el puerto 8080. El healthcheck consulta `/health`.
+Healthcheck: `GET /health`.
 
 ---
 
 ## Variables de entorno principales
 
-| Variable | Proposito |
-|---|---|
-| `TEAM_ID` | Identificador del equipo (se usa para componer el topic de telemetria). |
-| `KAFKA_BROKER`, `KAFKA_USERNAME`, `KAFKA_PASSWORD` | Credenciales SASL_PLAINTEXT del bus Kafka de Aruba. |
-| `KAFKA_TOPIC_TELEMETRIA` | Topic donde el equipo publica su telemetria. |
-| `KAFKA_TOPIC_CLIMA`, `KAFKA_TOPIC_EVENTOS` | Buses oficiales de Aruba que se consumen. |
-| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | Endpoint OpenAI-compatible para el chatbot. |
-| `HOST_SERVIDOR`, `PUERTO_SERVIDOR` | Bind del servidor Flask. |
-| `INTERVALO_SIM`, `INTERVALO_TELEMETRIA` | Frecuencia del bucle de simulacion y la publicacion Kafka. |
+| Variable | Propósito |
+|----------|-----------|
+| `TEAM_ID` | Identificador del equipo (topic de telemetría). |
+| `KAFKA_BROKER`, `KAFKA_USERNAME`, `KAFKA_PASSWORD`, `KAFKA_SECURITY_PROTOCOL`, `KAFKA_SASL_MECHANISM` | Conexión al clúster Kafka. |
+| `KAFKA_TOPIC_TELEMETRIA`, `KAFKA_TOPIC_CLIMA`, `KAFKA_TOPIC_EVENTOS` | Topics de publicación/consumo. |
+| `KAFKA_OFFSET_CLIMA`, `KAFKA_OFFSET_EVENTOS` | `earliest` / `latest` por consumidor. |
+| `ARUBA_INVENTORY_API` | URL base del inventario Aruba (POIs, roads, stations). |
+| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | Chatbot OpenAI-compatible. |
+| `HOST_SERVIDOR`, `PUERTO_SERVIDOR` | Bind del servidor. |
+| `INTERVALO_SIM`, `INTERVALO_TELEMETRIA` | Bucles de simulación y publicación. |
+| `CACHE_ENTORNO` | TTL caché HTTP inventario (segundos). |
+| `AUTO_DEMO_MIN_S`, `AUTO_DEMO_MAX_S`, `AUTO_DEMO_SILENCIO_S`, `AUTO_DEMO_MAX_ACTIVOS` | (Opcional) ritmo de la demo automática de incidentes cuando está habilitada en código. |
 
-Todos los valores estan documentados en `.env.example`.
+Detalle adicional en `.env.example`.
 
 ---
 
-## API REST
+## API REST (selección)
 
-| Metodo | Ruta | Descripcion |
-|---|---|---|
-| GET | `/health` | Healthcheck. |
-| GET | `/openapi.yaml` | Contrato OpenAPI 3.1 del equipo. |
-| GET | `/vehicles` | Estado completo de la flota. |
-| GET | `/vehicles/status` | Resumen agregado (totales, costes, ocupacion). |
-| GET | `/vehicles/{id}` | Detalle de una unidad. |
-| GET | `/incidents` | Incidentes activos y resueltos. |
-| GET | `/simulations` | Lista de simulaciones (live + replays). |
-| POST | `/simulations/replay` | Lanza un replay con `started_at` y `speed`. |
-| GET | `/simulations/{sim_id}/state` | Estado del replay. |
-| POST | `/simulations/{sim_id}/pause` | Pausa o reanuda. |
-| POST | `/simulations/{sim_id}/speed` | Ajusta velocidad. |
-| POST | `/ask` | Chatbot con LLM. |
-| GET | `/api/context` | Contexto (flota + entorno) para integraciones. |
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/health`, `/health/kafka`, `/health/inventory`, `/health/fleet`, `/health/osrm` | Salud del sistema y dependencias. |
+| GET | `/api/map/pois` | POIs del inventario filtrados por relevancia operativa (JSON para el mapa). |
+| GET | `/openapi.yaml` | OpenAPI 3.1. |
+| GET | `/vehicles`, `/vehicles/status`, `/vehicles/{id}` | Flota. |
+| GET | `/incidents` | Incidentes. |
+| POST | `/fleet/units` | Alta de unidad (operador). |
+| DELETE | `/fleet/units/{id}` | Baja de unidad (operador). |
+| GET/POST | `/costs/...` | Costes y tarifas. |
+| GET | `/security/sabotage`, `/security/sabotage/{id}` | Flujos de sabotaje/detección. |
+| GET | `/simulations`, `/simulations/replay` (POST), `/simulations/{id}/snapshot`, etc. | Replay y estado. |
+| GET | `/ask` | Chatbot (query `q`). |
+| GET | `/weather-stations`, `/weather-stations/{id}/reading` | Estaciones meteorológicas del inventario. |
 
-Eventos Socket.IO clave:
+Lista completa en `main.py` y en OpenAPI.
 
-| Evento | Direccion |
-|---|---|
-| `estado_inicial` | Servidor -> cliente al conectar |
-| `actualizacion_flotas` | Servidor -> sala (operadores+visualizadores) cada `INTERVALO_ACTUALIZACION` |
-| `control_incidente` | Operador -> servidor (`asignar` / `cerrar` / `apoyo` / `mensaje`) |
-| `mensaje_central` | Servidor -> sala global |
+---
+
+## Socket.IO
+
+| Evento | Dirección | Notas |
+|--------|-----------|--------|
+| `estado_inicial` | Servidor → cliente | Al conectar. |
+| `actualizacion_flotas` | Servidor → sala | Vehículos, incidentes, factor de clima, etc.; también tras eventos Kafka procesados. |
+| `clima_actualizado` | Servidor → cliente | Lectura nueva de clima. |
+| `mensaje_central` | Servidor → sala | Difusión de mensajes (si se usa desde backend). |
+| `control_incidente` | Cliente → servidor | Acciones de operador (asignar, cerrar, etc. según implementación en `socketio_server.py`). |
 
 ---
 
 ## Roles
 
 | Rol | Vista | Capacidades |
-|---|---|---|
-| **Operador** | `/operador` | Ve toda la flota, asigna manualmente unidades, cierra incidentes, solicita apoyo y emite mensajes a la flota. Multiples operadores pueden trabajar simultaneamente. |
-| **Visualizador** | `/visualizador` | Solo lectura. Visualiza la flota completa, los incidentes y dispone de controles para lanzar replays historicos a partir del 1 de abril. |
+|-----|-------|-------------|
+| **Operador** | `/operador` | Flota en vivo, mapa, detalle, chat, alta/baja de unidades. |
+| **Visualizador** | `/visualizador` | Solo lectura + replay, decisiones, clima, chat. |
+| **Ciudadano** | `/ciudadano` | Vista pública según rutas definidas. |
 
 ---
 
-## Replay historico
+## Replay histórico
 
-Desde el visualizador (o por API):
+Ejemplo:
 
 ```bash
 curl -X POST http://localhost:8080/simulations/replay \
@@ -209,13 +230,15 @@ curl -X POST http://localhost:8080/simulations/replay \
      -d '{"started_at": "2026-04-01T08:00:00Z", "speed": 4.0}'
 ```
 
-El gestor crea un `KafkaConsumer` con `auto_offset_reset=earliest` y reinyecta los eventos pasados al `FleetManager` respetando el delta de tiempo escalado por la velocidad solicitada.
+El gestor consume Kafka desde el offset adecuado y reinyecta eventos al `FleetManager` con escala temporal configurable.
 
 ---
 
 ## Demo
 
-URL: por confirmar
+URL: por confirmar.
+
+---
 
 ## Licencia
 

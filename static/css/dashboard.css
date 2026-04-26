@@ -180,14 +180,70 @@
 
 @media (max-width: 1280px) {
   .dt-grid {
-    grid-template-columns: 280px 1fr 320px;
+    grid-template-columns: 260px 1fr 300px;
   }
 }
 
-@media (max-width: 980px) {
+/* ── Tablet (≤ 1024px) ── */
+@media (max-width: 1024px) {
+  .dt-grid {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+  }
+  .dt-map-wrap { grid-column: 1 / -1; min-height: 380px; }
+  .dt-map      { min-height: 380px; }
+}
+
+/* ── Móvil (≤ 680px) ── */
+@media (max-width: 680px) {
+  .dt-dashboard { padding: 8px; gap: 8px; }
+
+  .dt-summary { gap: 8px; }
+  .dt-card    { min-width: 120px; padding: 8px 10px; }
+  .dt-card.replay  { width: 100%; }
+  .dt-card.actions { width: 100%; flex-wrap: wrap; gap: 6px; }
+
+  /* Grid: mapa arriba, luego paneles apilados */
   .dt-grid {
     grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    gap: 8px;
   }
+  .dt-map-wrap { order: -1; min-height: 45vh; border-radius: 8px; }
+  .dt-map      { min-height: 45vh; }
+  .dt-side     { order: 0; }
+  .dt-detail   { order: 1; }
+
+  /* Paneles: altura máxima para no colapsar la página */
+  .dt-side .panel,
+  .dt-detail .panel {
+    border-radius: 8px;
+  }
+  .vehicle-list  { max-height: 220px; }
+  .incidentes-list { max-height: 180px; }
+  .decisiones-list { max-height: 160px; }
+  .details-box   { max-height: 200px; overflow-y: auto; }
+  .chat-box      { min-height: 80px; max-height: 140px; }
+
+  /* Touch targets: mín 44px */
+  .btn           { min-height: 44px; padding: 8px 14px; font-size: 0.85rem; }
+  .vehicle-card  { padding: 10px 12px; min-height: 48px; }
+  .incident-card { padding: 10px 12px; }
+
+  /* Prevenir zoom en iOS al enfocar inputs */
+  .chat-form input,
+  input[type="text"],
+  input[type="number"],
+  input[type="datetime-local"],
+  select { font-size: 16px !important; }
+
+  /* Replay form: apilado */
+  .replay-form { flex-direction: column; gap: 6px; }
+  .replay-form label { display: flex; flex-direction: column; gap: 2px; font-size: 0.8rem; }
+  .replay-form input { width: 100%; }
+
+  /* Títulos de paneles más compactos */
+  .panel h2 { font-size: 0.75rem; }
 }
 
 .dt-side,

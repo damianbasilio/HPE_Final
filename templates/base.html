@@ -123,12 +123,59 @@
     .connection-dot.disconnected{background:#94a3b8;animation:pulse-dot 1.5s infinite}
     @keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.3}}
 
+    /* ── Hamburger (solo móvil) ── */
+    .nav-hamburger{
+      display:none;margin-left:auto;
+      background:none;border:1px solid var(--border-ui);
+      color:var(--text-primary);font-size:1.2rem;
+      width:36px;height:36px;border-radius:6px;cursor:pointer;
+      align-items:center;justify-content:center;
+      transition:background .15s;flex-shrink:0;
+    }
+    .nav-hamburger:hover{background:rgba(128,128,128,0.12)}
+
+    /* ── Menú móvil desplegable ── */
+    #nav-mobile-menu{
+      display:none;position:fixed;top:56px;left:0;right:0;z-index:499;
+      background:var(--bg-surface);border-bottom:1px solid var(--border-ui);
+      padding:12px 20px 16px;flex-direction:column;gap:4px;
+      box-shadow:0 8px 24px rgba(0,0,0,0.25);
+      transition:background .25s;
+    }
+    #nav-mobile-menu.open{display:flex}
+    #nav-mobile-menu a{
+      display:block;padding:10px 12px;border-radius:8px;
+      font-size:0.9rem;color:var(--text-muted);text-decoration:none;
+      transition:background .15s,color .15s;
+    }
+    #nav-mobile-menu a:hover,#nav-mobile-menu a.active{
+      background:rgba(128,128,128,0.1);color:var(--text-primary)}
+    #nav-mobile-menu .mob-user{
+      margin-top:10px;padding-top:10px;
+      border-top:1px solid var(--border-ui);
+      display:flex;align-items:center;justify-content:space-between;
+      font-size:0.82rem;color:var(--text-muted);
+    }
+
+    @media(max-width:680px){
+      .nav-hamburger{display:flex}
+      .nav-links{display:none}
+      .user-info-wrapper{display:none}
+      /* Botones de acción en navbar más compactos */
+      #btn-tema,#btn-kb-help{width:32px;height:32px;padding:0}
+    }
+
     /* ── Layout general ── */
     .container{max-width:1600px;margin:0 auto;padding:0 20px}
     .main-content{padding:20px 0}
     footer{padding:14px 20px;font-size:0.74rem;color:var(--text-muted);
       border-top:1px solid var(--border-ui);background:var(--bg-surface);
       transition:background .25s,border-color .25s,color .25s}
+
+    @media(max-width:680px){
+      .main-content{padding:12px 0}
+      footer{display:none} /* simplifica en móvil */
+    }
   </style>
   {% block head_extra %}{% endblock %}
 </head>
@@ -196,10 +243,29 @@
           <a href="{{ url_for('logout') }}" class="logout-btn">Salir</a>
         </div>
         {% endif %}
+        <button class="nav-hamburger" id="nav-hamburger" aria-label="Menu" aria-expanded="false">&#9776;</button>
       </div>
 
     </div>
   </nav>
+
+  <!-- Menú desplegable móvil -->
+  <div id="nav-mobile-menu" role="navigation" aria-label="Menu móvil">
+    {% if usuario and usuario.rol == 'operador' %}
+      <a href="{{ url_for('operador') }}" class="{% if request.endpoint == 'operador' %}active{% endif %}">Consola Operador</a>
+    {% elif usuario and usuario.rol == 'visualizador' %}
+      <a href="{{ url_for('visualizador') }}" class="{% if request.endpoint == 'visualizador' %}active{% endif %}">Consola Visualizador</a>
+    {% else %}
+      <a href="{{ url_for('ciudadano') }}">Ciudadano</a>
+      <a href="{{ url_for('login') }}">Acceder</a>
+    {% endif %}
+    {% if usuario %}
+    <div class="mob-user">
+      <span>{{ usuario.nombre }} · <span class="role-pill role-pill-{{ usuario.rol }}">{{ usuario.rol }}</span></span>
+      <a href="{{ url_for('logout') }}" class="logout-btn">Salir</a>
+    </div>
+    {% endif %}
+  </div>
 
   
   <main class="main-content">
@@ -244,6 +310,24 @@
     window.addEventListener('scroll', () => {
       navbar.classList.toggle('scrolled', window.pageYOffset > 50);
     });
+
+    /* ── Hamburger móvil ── */
+    (function () {
+      const btn = document.getElementById('nav-hamburger');
+      const menu = document.getElementById('nav-mobile-menu');
+      if (!btn || !menu) return;
+      btn.addEventListener('click', () => {
+        const open = menu.classList.toggle('open');
+        btn.setAttribute('aria-expanded', open);
+      });
+      // Cierra al hacer click fuera
+      document.addEventListener('click', (e) => {
+        if (!navbar.contains(e.target) && !menu.contains(e.target)) {
+          menu.classList.remove('open');
+          btn.setAttribute('aria-expanded', 'false');
+        }
+      });
+    })();
 
     /* ── Tema claro / oscuro ── */
     (function () {

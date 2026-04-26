@@ -760,3 +760,124 @@
 .dt-dashboard-visualizador .operador-only {
   display: none !important;
 }
+
+/* ============================================================
+   Overrides de modo claro
+   ============================================================ */
+html[data-theme="light"] .dt-card {
+  background: rgba(0,0,0,0.04);
+  border-color: rgba(0,0,0,0.11);
+}
+html[data-theme="light"] .dt-card .label,
+html[data-theme="light"] .dt-card .unit   { color: #6b7280; }
+html[data-theme="light"] .dt-card .value  { color: var(--accent, #00897b); }
+
+html[data-theme="light"] .dt-side .panel,
+html[data-theme="light"] .dt-detail .panel {
+  background: rgba(0,0,0,0.04);
+  border-color: rgba(0,0,0,0.11);
+}
+html[data-theme="light"] .panel h2 { color: var(--accent, #00897b); }
+html[data-theme="light"] .panel h4 { color: #6b7280; }
+
+html[data-theme="light"] .dt-map-wrap {
+  border-color: rgba(0,0,0,0.14);
+}
+html[data-theme="light"] .dt-map { background: #e0e6ee; }
+
+html[data-theme="light"] .vehicle-card {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.10);
+}
+html[data-theme="light"] .vehicle-card:hover  { background: rgba(0,0,0,0.06); }
+html[data-theme="light"] .vehicle-card.selected {
+  border-color: var(--accent, #00897b);
+  background: rgba(0,137,123,0.07);
+}
+html[data-theme="light"] .vehicle-card .operador { color: #111827; }
+html[data-theme="light"] .vehicle-card .info     { color: #6b7280; }
+html[data-theme="light"] .vehicle-card .status.free { background: rgba(16,185,129,0.14); color: #047857; }
+html[data-theme="light"] .vehicle-card .status.busy { background: rgba(239,68,68,0.12);  color: #dc2626; }
+
+html[data-theme="light"] .incident-card {
+  background: rgba(0,0,0,0.03);
+}
+html[data-theme="light"] .incident-meta  { color: #6b7280; }
+html[data-theme="light"] .incident-status{ color: #374151; }
+html[data-theme="light"] .incident-head .badge { background: rgba(0,0,0,0.07); color: #374151; }
+
+html[data-theme="light"] .decision-row {
+  background: rgba(0,0,0,0.03);
+}
+html[data-theme="light"] .decision-tipo { color: #374151; }
+html[data-theme="light"] .decision-meta { color: #6b7280; }
+html[data-theme="light"] .decision-ts   { color: #9ca3af; }
+
+html[data-theme="light"] .detail-row .label { color: #6b7280; }
+html[data-theme="light"] .detail-row .value { color: #111827; }
+html[data-theme="light"] .detail-row {
+  border-bottom-color: rgba(0,0,0,0.07);
+}
+
+html[data-theme="light"] .chat-box {
+  background: rgba(0,0,0,0.05);
+}
+html[data-theme="light"] .chat-msg.user { color: var(--accent, #00897b); }
+html[data-theme="light"] .chat-msg.bot  { color: #111827; }
+html[data-theme="light"] .chat-form input {
+  background: #ffffff;
+  border-color: rgba(0,0,0,0.14);
+  color: #111827;
+}
+
+html[data-theme="light"] .replay-form input[type="datetime-local"],
+html[data-theme="light"] .replay-form input[type="number"] {
+  background: #ffffff;
+  border-color: rgba(0,0,0,0.16);
+  color: #111827;
+}
+html[data-theme="light"] .replay-estado { color: #374151; }
+
+html[data-theme="light"] .no-vehicles,
+html[data-theme="light"] .muted { color: #9ca3af; }
+
+html[data-theme="light"] .cost-panel {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.11);
+}
+html[data-theme="light"] .cost-panel h2  { color: var(--accent, #00897b); }
+html[data-theme="light"] .cost-panel h4  { color: #6b7280; }
+html[data-theme="light"] .cost-headline  { background: rgba(0,0,0,0.06); }
+html[data-theme="light"] .cost-label     { color: #6b7280; }
+html[data-theme="light"] .cost-amount    { color: var(--accent, #00897b); }
+html[data-theme="light"] .cost-amount-mini { color: #111827; }
+html[data-theme="light"] .cost-bar-track { background: rgba(0,0,0,0.08); }
+html[data-theme="light"] .cost-bar-value { color: #111827; }
+html[data-theme="light"] .cost-bar-label { color: #6b7280; }
+html[data-theme="light"] .cost-type-row  { background: rgba(0,0,0,0.04); }
+html[data-theme="light"] .cost-type-units { color: #6b7280; }
+html[data-theme="light"] .cost-type-amount { color: var(--accent, #00897b); }
+html[data-theme="light"] .cost-history-row { background: rgba(0,0,0,0.03); }
+html[data-theme="light"] .cost-history-row .row-meta { color: #6b7280; }
+html[data-theme="light"] .cost-history-row .row-top strong { color: #111827; }
+html[data-theme="light"] .cost-history-row .row-top .badge { background: rgba(0,0,0,0.08); color: #374151; }
+html[data-theme="light"] .cost-rates-table th { color: #6b7280; }
+html[data-theme="light"] .cost-rates-table th,
+html[data-theme="light"] .cost-rates-table td {
+  border-bottom-color: rgba(0,0,0,0.08);
+}
+html[data-theme="light"] .cost-form-block {
+  background: rgba(0,137,123,0.05);
+  border-color: rgba(0,137,123,0.25);
+}
+html[data-theme="light"] .cost-form input {
+  background: #ffffff;
+  border-color: rgba(0,0,0,0.14);
+  color: #111827;
+}
+html[data-theme="light"] .cost-feedback.ok    { color: #047857; }
+html[data-theme="light"] .cost-feedback.error { color: #dc2626; }
+
+html[data-theme="light"] .dt-card.actions .actions-divider {
+  background: rgba(0,0,0,0.14);
+}

@@ -6,13 +6,27 @@
   <title>{% block title %}Gemelo Digital — 52Sec{% endblock %}</title>
   
   <style>
-    :root{--bg-base:#0a0a0a;--bg-surface:#0f0f0f;--text-primary:#f2f4f3;--font-sans:'Sora',system-ui,sans-serif;--role-operador:#5b8dff;--role-visualizador:#00e5c4}
+    /* ── Tema oscuro (defecto) ── */
+    :root{
+      --bg-base:#0a0a0a;--bg-surface:#0f0f0f;--text-primary:#f2f4f3;
+      --text-muted:#94a3b8;--text-secondary:#c1c8cc;
+      --accent:#00e5c4;--border-ui:rgba(255,255,255,0.12);
+      --font-sans:'Sora',system-ui,sans-serif;
+      --role-operador:#5b8dff;--role-visualizador:#00e5c4
+    }
+    /* ── Tema claro ── */
+    html[data-theme="light"]{
+      --bg-base:#f0f2f5;--bg-surface:#ffffff;--text-primary:#111827;
+      --text-muted:#6b7280;--text-secondary:#374151;
+      --accent:#00897b;--border-ui:rgba(0,0,0,0.14);
+      --role-operador:#3b5fd9;--role-visualizador:#00897b
+    }
     *{margin:0;padding:0;box-sizing:border-box}
-    html,body{height:100%;font-family:var(--font-sans);background:var(--bg-base);color:var(--text-primary)}
+    html,body{height:100%;font-family:var(--font-sans);background:var(--bg-base);color:var(--text-primary);transition:background .25s,color .25s}
+
     .loading-skeleton{background:linear-gradient(90deg,#111 25%,#1a1a1a 50%,#111 75%);background-size:200% 100%;animation:shimmer 1.5s infinite}
     @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 
-    /* Pildora de rol - misma identidad visual, solo varia el acento */
     .role-pill{font-family:'DM Mono',monospace;font-size:0.58rem;font-weight:600;letter-spacing:0.1em;
       padding:2px 9px;border-radius:9999px;text-transform:uppercase;
       border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.04);color:#f2f4f3}
@@ -20,15 +34,65 @@
       box-shadow:0 0 0 1px rgba(91,141,255,0.18)}
     .role-pill-visualizador{border-color:rgba(0,229,196,0.55);color:#7df4dc;background:rgba(0,229,196,0.10);
       box-shadow:0 0 0 1px rgba(0,229,196,0.18)}
+    html[data-theme="light"] .role-pill{background:rgba(0,0,0,0.05);color:#111827;border-color:rgba(0,0,0,0.20)}
+    html[data-theme="light"] .role-pill-operador{border-color:rgba(59,95,217,0.5);color:#3b5fd9;background:rgba(59,95,217,0.09)}
+    html[data-theme="light"] .role-pill-visualizador{border-color:rgba(0,137,123,0.5);color:#00897b;background:rgba(0,137,123,0.09)}
 
-    /* Banda lateral sutil para reforzar la identidad de la consola sin
-       cambiar la paleta global. Solo en consolas autenticadas. */
     body[data-rol="operador"]::before,
     body[data-rol="visualizador"]::before{
-      content:'';position:fixed;top:0;left:0;width:3px;height:100vh;
-      pointer-events:none;z-index:99}
+      content:'';position:fixed;top:0;left:0;width:3px;height:100vh;pointer-events:none;z-index:99}
     body[data-rol="operador"]::before{background:linear-gradient(180deg,var(--role-operador),transparent)}
     body[data-rol="visualizador"]::before{background:linear-gradient(180deg,var(--role-visualizador),transparent)}
+
+    /* ── Botón de tema ── */
+    #btn-tema{
+      background:none;border:1px solid var(--border-ui);color:var(--text-primary);
+      padding:4px 10px;border-radius:6px;cursor:pointer;font-size:0.82rem;
+      transition:background .15s,border-color .15s;line-height:1;
+    }
+    #btn-tema:hover{background:rgba(128,128,128,0.12)}
+
+    /* ── Botón ayuda teclado ── */
+    #btn-kb-help{
+      background:none;border:1px solid var(--border-ui);color:var(--text-muted);
+      width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:0.8rem;
+      font-family:'DM Mono',monospace;transition:background .15s;
+    }
+    #btn-kb-help:hover{background:rgba(128,128,128,0.12);color:var(--text-primary)}
+
+    /* ── Overlay ayuda teclado ── */
+    #kb-help{
+      display:none;position:fixed;inset:0;z-index:9000;
+      background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);
+      align-items:center;justify-content:center;
+    }
+    #kb-help.visible{display:flex}
+    #kb-help-box{
+      background:var(--bg-surface,#0f0f0f);border:1px solid var(--border-ui);
+      border-radius:14px;padding:24px 28px;max-width:460px;width:90%;
+    }
+    html[data-theme="light"] #kb-help-box{box-shadow:0 8px 32px rgba(0,0,0,0.18)}
+    #kb-help-box h2{font-size:0.85rem;letter-spacing:.08em;text-transform:uppercase;
+      color:var(--accent);margin-bottom:16px}
+    #kb-help-box table{width:100%;border-collapse:collapse;font-size:0.8rem}
+    #kb-help-box tr+tr td{border-top:1px solid var(--border-ui)}
+    #kb-help-box td{padding:6px 4px;vertical-align:top}
+    #kb-help-box td:first-child{white-space:nowrap;padding-right:16px}
+    #kb-help-box kbd{
+      display:inline-block;background:rgba(128,128,128,0.15);border:1px solid var(--border-ui);
+      border-radius:4px;padding:1px 6px;font-family:'DM Mono',monospace;font-size:0.75rem;
+    }
+    #kb-help-box .kb-close{
+      margin-top:16px;width:100%;background:none;border:1px solid var(--border-ui);
+      color:var(--text-muted);padding:6px;border-radius:6px;cursor:pointer;font-size:0.78rem;
+    }
+    #kb-help-box .kb-close:hover{background:rgba(128,128,128,0.12)}
+
+    /* ── Focus visible para navegación por teclado ── */
+    :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+    .vehicle-card:focus-visible,.incident-card:focus-visible{
+      outline:2px solid var(--accent);outline-offset:2px
+    }
   </style>
   
   
@@ -81,7 +145,9 @@
       </ul>
 
       
-      <div style="display:flex;align-items:center;gap:12px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button id="btn-tema" title="Cambiar tema claro/oscuro (Alt+T)" aria-label="Cambiar tema">◑</button>
+        <button id="btn-kb-help" title="Atajos de teclado (?)" aria-label="Atajos de teclado">⌨</button>
         {% if usuario %}
         <div id="ws-status-dot" class="connection-dot disconnected" style="width:8px;height:8px;" title="Conectando..."></div>
         <div class="user-info-wrapper">
@@ -120,11 +186,178 @@
     </div>
   </footer>
 
+  <!-- Overlay de atajos de teclado -->
+  <div id="kb-help" role="dialog" aria-modal="true" aria-label="Atajos de teclado">
+    <div id="kb-help-box">
+      <h2>⌨ Atajos de teclado</h2>
+      <table>
+        <tr><td><kbd>Alt</kbd>+<kbd>T</kbd></td><td>Cambiar tema claro / oscuro</td></tr>
+        <tr><td><kbd>Alt</kbd>+<kbd>U</kbd></td><td>Ir a lista de unidades</td></tr>
+        <tr><td><kbd>Alt</kbd>+<kbd>I</kbd></td><td>Ir a lista de incidentes</td></tr>
+        <tr><td><kbd>Alt</kbd>+<kbd>C</kbd></td><td>Ir al chat del asistente</td></tr>
+        <tr><td><kbd>Alt</kbd>+<kbd>M</kbd></td><td>Ir al mapa</td></tr>
+        <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Navegar dentro de una lista</td></tr>
+        <tr><td><kbd>Enter</kbd></td><td>Seleccionar unidad enfocada</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Cerrar este panel / deseleccionar</td></tr>
+        <tr><td><kbd>?</kbd></td><td>Mostrar / ocultar esta ayuda</td></tr>
+      </table>
+      <button class="kb-close" id="kb-close">Cerrar (Esc)</button>
+    </div>
+  </div>
+
   <script>
+    /* ── Navbar scroll ── */
     const navbar = document.getElementById('navbar');
     window.addEventListener('scroll', () => {
       navbar.classList.toggle('scrolled', window.pageYOffset > 50);
     });
+
+    /* ── Tema claro / oscuro ── */
+    (function () {
+      const STORAGE_KEY = 'dt-tema';
+      const html = document.documentElement;
+
+      function aplicarTema(tema) {
+        if (tema === 'light') {
+          html.setAttribute('data-theme', 'light');
+          document.getElementById('btn-tema').textContent = '☀';
+          document.getElementById('btn-tema').title = 'Cambiar a modo oscuro (Alt+T)';
+        } else {
+          html.removeAttribute('data-theme');
+          document.getElementById('btn-tema').textContent = '◑';
+          document.getElementById('btn-tema').title = 'Cambiar a modo claro (Alt+T)';
+        }
+        window.dispatchEvent(new CustomEvent('tema-cambiado', { detail: { tema } }));
+        localStorage.setItem(STORAGE_KEY, tema);
+      }
+
+      function toggleTema() {
+        const actual = html.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+        aplicarTema(actual === 'light' ? 'dark' : 'light');
+      }
+      window.toggleTema = toggleTema;
+
+      /* Restaurar preferencia guardada o respetar preferencia del sistema */
+      const guardado = localStorage.getItem(STORAGE_KEY);
+      if (guardado) {
+        aplicarTema(guardado);
+      } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+        aplicarTema('light');
+      }
+
+      document.getElementById('btn-tema').addEventListener('click', toggleTema);
+    })();
+
+    /* ── Overlay de atajos ── */
+    (function () {
+      const overlay = document.getElementById('kb-help');
+      const cerrar = document.getElementById('kb-close');
+
+      function mostrarAyuda(v) { overlay.classList.toggle('visible', v); }
+
+      document.getElementById('btn-kb-help').addEventListener('click', () => mostrarAyuda(true));
+      cerrar.addEventListener('click', () => mostrarAyuda(false));
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) mostrarAyuda(false); });
+
+      window._mostrarAyudaTeclado = mostrarAyuda;
+    })();
+
+    /* ── Navegación por teclado ── */
+    (function () {
+      /* Añadir tabindex automáticamente a cards dinámicas */
+      const obs = new MutationObserver(() => {
+        document.querySelectorAll('.vehicle-card:not([tabindex])').forEach(el => {
+          el.setAttribute('tabindex', '0');
+          el.setAttribute('role', 'button');
+        });
+        document.querySelectorAll('.incident-card:not([tabindex])').forEach(el => {
+          el.setAttribute('tabindex', '0');
+        });
+      });
+      obs.observe(document.body, { childList: true, subtree: true });
+
+      function focusPrimero(selector) {
+        const el = document.querySelector(selector);
+        if (el) { el.focus(); el.scrollIntoView({ block: 'nearest' }); }
+      }
+
+      document.addEventListener('keydown', (e) => {
+        const tag = (document.activeElement?.tagName || '').toLowerCase();
+        const enInput = tag === 'input' || tag === 'textarea' || tag === 'select';
+
+        /* Alt + tecla → atajos globales (funcionan siempre) */
+        if (e.altKey && !e.ctrlKey && !e.metaKey) {
+          switch (e.key.toLowerCase()) {
+            case 't':
+              e.preventDefault();
+              window.toggleTema();
+              break;
+            case 'u':
+              e.preventDefault();
+              focusPrimero('#unidades-lista .vehicle-card');
+              break;
+            case 'i':
+              e.preventDefault();
+              focusPrimero('#incidentes-lista .incident-card');
+              break;
+            case 'c':
+              e.preventDefault();
+              focusPrimero('#chat-input');
+              break;
+            case 'm':
+              e.preventDefault();
+              focusPrimero('.dt-map-wrap, #mapa-flota');
+              break;
+          }
+          return;
+        }
+
+        /* ? → mostrar ayuda (solo fuera de inputs) */
+        if (e.key === '?' && !enInput) {
+          e.preventDefault();
+          window._mostrarAyudaTeclado(true);
+          return;
+        }
+
+        /* Escape → cerrar ayuda o deseleccionar */
+        if (e.key === 'Escape') {
+          const overlay = document.getElementById('kb-help');
+          if (overlay.classList.contains('visible')) {
+            window._mostrarAyudaTeclado(false);
+            return;
+          }
+          /* Si hay una card seleccionada, deseleccionarla */
+          const sel = document.querySelector('.vehicle-card.selected');
+          if (sel) sel.click();
+          return;
+        }
+
+        /* Flechas dentro de listas */
+        const focused = document.activeElement;
+        if (!focused) return;
+
+        const enVehicleCard  = focused.classList.contains('vehicle-card');
+        const enIncidentCard = focused.classList.contains('incident-card');
+        if (!enVehicleCard && !enIncidentCard) return;
+
+        const listSel = enVehicleCard ? '.vehicle-card' : '.incident-card';
+        const parent  = focused.closest('.vehicle-list, .incidentes-list');
+        if (!parent) return;
+        const items = [...parent.querySelectorAll(listSel)];
+        const idx   = items.indexOf(focused);
+
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (idx < items.length - 1) { items[idx + 1].focus(); items[idx + 1].scrollIntoView({ block: 'nearest' }); }
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (idx > 0) { items[idx - 1].focus(); items[idx - 1].scrollIntoView({ block: 'nearest' }); }
+        } else if ((e.key === 'Enter' || e.key === ' ') && enVehicleCard) {
+          e.preventDefault();
+          focused.click();
+        }
+      });
+    })();
   </script>
 
   {% block scripts %}{% endblock %}

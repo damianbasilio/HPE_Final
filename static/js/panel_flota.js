@@ -3,6 +3,9 @@
 const ARUBA_CENTRO = [12.5211, -69.9683];
 const ARUBA_ZOOM = 12;
 
+/* Registro global de instancias para que el toggle de tema las encuentre */
+const _panelInstances = [];
+
 const TIPO_META = {
   policia:          { letra: 'P', color: '#3b82f6', etiqueta: 'Policia' },
   ambulancia:       { letra: 'A', color: '#ef4444', etiqueta: 'Ambulancia' },
@@ -24,6 +27,7 @@ class PanelFlota {
     this.onSeleccion = onSeleccion;
     this.mapa = null;
     this.tilesLayer = null;
+    _panelInstances.push(this);
     this.marcadores = new Map();
     this.rutas = new Map();
     this.destinoMarcadores = new Map();   // pin de destino del incidente
@@ -283,6 +287,14 @@ class PanelFlota {
   unidadActual() {
     if (!this.seleccionado) return null;
     return this.flota.find((v) => v.id === this.seleccionado) || null;
+  }
+
+  setTema(tema) {
+    if (!this.mapa || !this.tilesLayer) return;
+    const url = tema === 'light'
+      ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+    this.tilesLayer.setUrl(url);
   }
 
   centrarEn(id) {
@@ -556,6 +568,11 @@ function describirEspecializado(unidad) {
 
 window.PanelFlota = PanelFlota;
 window.TIPO_META = TIPO_META;
+
+/* Propaga el cambio de tema a todos los mapas abiertos */
+window.addEventListener('tema-cambiado', (e) => {
+  _panelInstances.forEach((p) => p.setTema && p.setTema(e.detail.tema));
+});
 window.fmtNum = fmtNum;
 window.fmtETA = fmtETA;
 window.fmtEUR = fmtEUR;

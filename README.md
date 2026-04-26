@@ -2,7 +2,7 @@
 
 > Plataforma de gemelo digital que modela en tiempo real la flota de emergencias de Aruba (Policía, Ambulancia, Bomberos, Protección Civil y Drones), integrando telemetría propia, eventos de la isla y clima a través de Kafka, interfaces de operador y visualizador, chatbot LLM con formato enriquecido, POIs del inventario Aruba en el mapa, y replay histórico.
 
-**Equipo:** 52Sec · **Convocatoria:** HPE 2026 · **Versión:** 2.1
+**Equipo:** 52Sec
 
 ---
 

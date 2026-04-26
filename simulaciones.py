@@ -65,20 +65,23 @@ def _parsear_iso(valor) -> Optional[datetime]:
 def _ts_evento(valor: dict, ts_kafka_ms: Optional[int]) -> Optional[datetime]:
     """Extrae el timestamp logico de un mensaje Kafka.
 
-    Prioriza los campos del payload (`started_at`, `timestamp`, `observed_at`...)
-    y usa el `record.timestamp` del broker como fallback.
+    Prioriza `record.timestamp` del broker (orden real del bus Kafka) y usa
+    campos del payload como fallback.
     """
-    if isinstance(valor, dict):
-        for clave in ('started_at', 'timestamp', 'observed_at', 'time',
-                      'created_at', 'ts'):
-            ts = _parsear_iso(valor.get(clave))
-            if ts:
-                return ts
     if ts_kafka_ms and ts_kafka_ms > 0:
         try:
             return datetime.fromtimestamp(ts_kafka_ms / 1000.0, tz=timezone.utc)
         except (ValueError, OSError):
-            return None
+            pass
+
+    if isinstance(valor, dict):
+        for clave in (
+            'updated_at', 'resolved_at', 'timestamp', 'observed_at',
+            'started_at', 'time', 'created_at', 'ts'
+        ):
+            ts = _parsear_iso(valor.get(clave))
+            if ts:
+                return ts
     return None
 
 

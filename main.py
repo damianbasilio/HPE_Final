@@ -22,6 +22,8 @@ from config import (
     DEPURACION_FLASK,
     HOST_SERVIDOR,
     INTERVALO_TELEMETRIA,
+    KAFKA_TOPIC_CLIMA,
+    KAFKA_TOPIC_EVENTOS,
     PUERTO_SERVIDOR,
     TEAM_ID,
     TIEMPO_SESION,
@@ -696,7 +698,7 @@ def sim_config():
         "fecha_minima": fecha_min.isoformat(),
         "velocidad_min": REPLAY_VELOCIDAD_MIN,
         "velocidad_max": REPLAY_VELOCIDAD_MAX,
-        "topics_disponibles": ['aruba.weather', 'aruba.events'],
+        "topics_disponibles": [KAFKA_TOPIC_CLIMA, KAFKA_TOPIC_EVENTOS],
         "ahora": _ahora_iso_ms(),
     })
 
@@ -711,7 +713,7 @@ def sim_replay():
         speed = float(payload.get('speed', 5))
     except (TypeError, ValueError):
         return jsonify({"error": "'speed' debe ser numerico"}), 400
-    topics = payload.get('topics') or ['aruba.weather', 'aruba.events']
+    topics = payload.get('topics') or [KAFKA_TOPIC_CLIMA, KAFKA_TOPIC_EVENTOS]
 
     try:
         sim = gestor_simulaciones.iniciar_replay(

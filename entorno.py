@@ -102,6 +102,17 @@ def interpretar_clima(lectura: dict) -> dict:
         "ultima_actualizacion": lectura.get("timestamp") or datetime.now().isoformat()
     }
 
+def invalidar_cache_entorno() -> None:
+    """Fuerza que la proxima llamada a obtener_contexto_entorno_completo recalcule.
+
+    Llamado por el on_weather hook de Kafka cuando llega una lectura nueva,
+    de modo que el factor de velocidad se actualiza sin esperar los 5 min del
+    CACHE_ENTORNO habitual.
+    """
+    global _ultimo_ts
+    _ultimo_ts = 0.0
+
+
 def obtener_contexto_entorno_completo() -> Optional[dict]:
     global _ultimo_contexto, _ultimo_ts
 

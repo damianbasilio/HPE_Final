@@ -81,13 +81,34 @@ document.addEventListener('DOMContentLoaded', () => {
     estadoActual = {
       vehiculos: data.vehiculos || [],
       incidentes: data.incidentes || [],
+      factor_clima: data.factor_clima != null ? data.factor_clima : (estadoActual.factor_clima ?? 1.0),
+      clima_actual: data.clima_actual || estadoActual.clima_actual || {},
     };
     panel.actualizarFlota(estadoActual);
     renderListaUnidades();
     renderListaIncidentes();
     renderResumen();
     if (panel.seleccionado) renderDetalle(panel.seleccionado);
+    _renderClimaOperador();
   });
+
+  // Actualizar tarjeta de clima del operador cuando llega nueva lectura Kafka
+  socket.on('clima_actualizado', (data) => {
+    estadoActual.factor_clima = data.factor_clima ?? estadoActual.factor_clima;
+    estadoActual.clima_actual = data.clima_actual || estadoActual.clima_actual;
+    _renderClimaOperador();
+  });
+
+  function _renderClimaOperador() {
+    const elFactor = document.getElementById('factor-clima');
+    const elDesc = document.getElementById('clima-desc');
+    if (elFactor) elFactor.textContent = `x${Number(estadoActual.factor_clima ?? 1).toFixed(2)}`;
+    if (elDesc) {
+      const c = estadoActual.clima_actual || {};
+      const cond = c.condicion || {};
+      elDesc.textContent = cond.descripcion ? `${cond.descripcion} (${cond.condiciones_conduccion || ''})` : '--';
+    }
+  }
 
   socket.on('control_resultado', (res) => {
     if (!res || res.ok === false) {

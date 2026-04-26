@@ -35,7 +35,7 @@ from costos import (
     registrar_tarifa_personalizada,
     tarifas_completas,
 )
-from entorno import configurar_bus, obtener_contexto_entorno_completo
+from entorno import configurar_bus, obtener_contexto_entorno_completo, invalidar_cache_entorno
 from flota import FleetManager
 from historial_clinico import obtener_historial, obtener_contexto_mision
 from sabotaje import guardian as _guardian_sabotaje
@@ -259,11 +259,36 @@ _generador_demo = fleet.activar_auto_demo(
     max_activos=int(os.getenv('AUTO_DEMO_MAX_ACTIVOS', 6)),
 )
 
+def _on_weather_nuevo(lectura: dict) -> None:
+    """Hook Kafka: al llegar clima nuevo invalida cache y difunde factor actualizado."""
+    try:
+        invalidar_cache_entorno()
+        # Difusion proactiva via Socket.IO si hay clientes conectados
+        from socketio_server import socketio as _sio, conexiones as _conx, lock_conexiones as _lock
+        if _sio is None:
+            return
+        with _lock:
+            hay_clientes = bool(_conx)
+        if not hay_clientes:
+            return
+        from entorno import obtener_contexto_entorno_completo, interpretar_clima
+        clima = interpretar_clima(lectura)
+        factor = float(clima.get('condicion', {}).get('factor_velocidad', 1.0) or 1.0)
+        _sio.emit('clima_actualizado', {
+            "factor_clima": factor,
+            "clima_actual": clima,
+        })
+    except Exception as exc:
+        logger.debug("[weather_hook] %s", exc)
+
 if _generador_demo is not None:
     from generador_incidentes import envolver_callback_kafka
-    bus.iniciar(on_event=envolver_callback_kafka(fleet.manejar_evento, _generador_demo))
+    bus.iniciar(
+        on_event=envolver_callback_kafka(fleet.manejar_evento, _generador_demo),
+        on_weather=_on_weather_nuevo,
+    )
 else:
-    bus.iniciar(on_event=fleet.manejar_evento)
+    bus.iniciar(on_event=fleet.manejar_evento, on_weather=_on_weather_nuevo)
 
 threading.Thread(target=bucle_flotas, daemon=True).start()
 threading.Thread(target=bucle_telemetria, daemon=True).start()

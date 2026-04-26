@@ -188,6 +188,22 @@ class SimulacionTiempoReal(_SimulacionBase):
             lecturas_clima = list(getattr(self._bus, '_weather_cache', []) or [])[-eventos_limit:]
         except Exception:
             lecturas_clima = []
+
+        # Factor clima y datos de clima actual para que el frontend live
+        # siempre tenga acceso al estado del entorno via REST (complementa
+        # el canal Socket.IO donde tambien se envia en cada broadcast).
+        factor_clima = 1.0
+        clima_actual: dict = {}
+        try:
+            from entorno import obtener_contexto_entorno_completo, interpretar_clima
+            ctx = obtener_contexto_entorno_completo() or {}
+            clima_actual = ctx.get('clima') or {}
+            factor_clima = float(
+                clima_actual.get('condicion', {}).get('factor_velocidad', 1.0) or 1.0
+            )
+        except Exception:
+            pass
+
         return {
             **self.estado_dict(),
             "vehiculos": snap["vehiculos"],
@@ -196,6 +212,8 @@ class SimulacionTiempoReal(_SimulacionBase):
             "decisiones": snap["decisiones"],
             "eventos_recientes": eventos_recientes,
             "lecturas_clima_recientes": lecturas_clima,
+            "factor_clima": factor_clima,
+            "clima_actual": clima_actual,
         }
 
 

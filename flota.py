@@ -167,31 +167,56 @@ def _normalizar_severidad(raw_sev) -> str:
 
 
 def _desenvolver_evento(evento: dict) -> dict:
+    """Desempaqueta estructuras anidadas comunes en eventos Kafka de Aruba.
+
+    Itera por hasta 5 niveles buscando la capa que contiene los campos
+    semanticos del evento (tipo, coordenadas, etc.). Cubre los patrones mas
+    habituales: {payload:{...}}, {data:{...}}, {event:{...}}, {message:{...}},
+    {value:{...}} y {body:{...}}.
+    """
     if not isinstance(evento, dict):
         return evento
 
+    # Campos que indican que hemos encontrado la capa de datos del evento
+    _CAMPOS_SEMANTICOS = frozenset((
+        "type", "event_type", "incident_type", "category", "eventType",
+        "latitude", "lat", "location", "coordinates", "geometry", "position",
+        "geo", "details", "properties",
+    ))
+
     actual = evento
-    for _ in range(4):
+    for _ in range(5):
         siguiente = None
-        for key in ("payload", "event", "data", "message", "value"):
+        for key in ("payload", "event", "data", "message", "value", "body"):
             nested = actual.get(key)
-            if isinstance(nested, dict):
-                if any(
-                    campo in nested
-                    for campo in (
-                        "type", "event_type", "incident_type", "category", "eventType",
-                        "latitude", "lat", "location", "coordinates", "geometry", "position",
-                    )
-                ):
-                    siguiente = nested
-                    break
+            if isinstance(nested, dict) and any(c in nested for c in _CAMPOS_SEMANTICOS):
+                siguiente = nested
+                break
         if not siguiente:
             break
         actual = siguiente
 
     return actual
 
+
 def _extraer_coords(evento: dict):
+    """Extrae (lat, lon) de un evento normalizado intentando todos los campos
+    que el topic aruba.events puede utilizar.
+
+    Orden de prioridad:
+    1. Campos planos: latitude/longitude, lat/lon, y/x
+    2. Objeto anidado: location, coords, coordinates, position, point, geo,
+       details, properties (buscando lat/lon dentro)
+    3. GeoJSON geometry
+    4. Lista top-level de dos numeros como [lon, lat] o [lat, lon]
+    """
+    def _from_dict(d: dict):
+        """Extrae lat/lon de un dict con cualquier campo conocido."""
+        la = _to_float(d.get('lat') or d.get('latitude') or d.get('y'))
+        lo = _to_float(d.get('lon') or d.get('lng') or d.get('longitude') or d.get('x'))
+        return la, lo
+
+    # 1. Campos planos en el propio evento
     lat = _to_float(evento.get('latitude'))
     if lat is None:
         lat = _to_float(evento.get('lat'))
@@ -206,42 +231,68 @@ def _extraer_coords(evento: dict):
     if lon is None:
         lon = _to_float(evento.get('x'))
 
+    # 2. Objetos anidados habituales (incluyendo 'geo', 'details', 'properties')
     if lat is None or lon is None:
-        loc = (evento.get('location') or evento.get('coords') or evento.get('coordinates')
-               or evento.get('position') or evento.get('point'))
-        if isinstance(loc, dict):
-            lat = lat if lat is not None else _to_float(loc.get('lat') or loc.get('latitude'))
-            lon = lon if lon is not None else _to_float(loc.get('lon') or loc.get('lng') or loc.get('longitude'))
-        elif isinstance(loc, (list, tuple)) and len(loc) >= 2:
-            p_lat, p_lon = _pair_a_lat_lon(loc[0], loc[1])
-            lat = lat if lat is not None else p_lat
-            lon = lon if lon is not None else p_lon
+        for key in ('location', 'coords', 'coordinates', 'position', 'point',
+                    'geo', 'details', 'properties'):
+            loc = evento.get(key)
+            if isinstance(loc, dict):
+                la, lo = _from_dict(loc)
+                if lat is None:
+                    lat = la
+                if lon is None:
+                    lon = lo
+                if lat is not None and lon is not None:
+                    break
+            elif isinstance(loc, (list, tuple)) and len(loc) >= 2:
+                p_lat, p_lon = _pair_a_lat_lon(loc[0], loc[1])
+                if lat is None:
+                    lat = p_lat
+                if lon is None:
+                    lon = p_lon
+                if lat is not None and lon is not None:
+                    break
 
+    # 3. GeoJSON geometry (Point / LineString / Polygon)
     if lat is None or lon is None:
         geom = evento.get('geometry')
         if isinstance(geom, dict):
             g_type = str(geom.get('type') or '').lower()
             coords = geom.get('coordinates')
-            if g_type == 'point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
-                p_lat, p_lon = _pair_a_lat_lon(coords[1], coords[0])
-                lat = lat if lat is not None else p_lat
-                lon = lon if lon is not None else p_lon
-            elif isinstance(coords, (list, tuple)) and coords:
-                first = coords[0]
-                if isinstance(first, (list, tuple)) and len(first) >= 2:
-                    p_lat, p_lon = _pair_a_lat_lon(first[1], first[0])
-                    lat = lat if lat is not None else p_lat
-                    lon = lon if lon is not None else p_lon
-        elif isinstance(geom, (list, tuple)) and geom:
-            first = geom[0]
-            if isinstance(first, (list, tuple)) and len(first) >= 2:
-                p_lat, p_lon = _pair_a_lat_lon(first[0], first[1])
-                lat = lat if lat is not None else p_lat
-                lon = lon if lon is not None else p_lon
-            elif len(geom) >= 2:
-                p_lat, p_lon = _pair_a_lat_lon(geom[0], geom[1])
-                lat = lat if lat is not None else p_lat
-                lon = lon if lon is not None else p_lon
+            if isinstance(coords, (list, tuple)) and coords:
+                if g_type == 'point' and len(coords) >= 2:
+                    # GeoJSON Point: [lon, lat]
+                    p_lat, p_lon = _pair_a_lat_lon(coords[1], coords[0])
+                    if lat is None:
+                        lat = p_lat
+                    if lon is None:
+                        lon = p_lon
+                elif isinstance(coords[0], (list, tuple)) and len(coords[0]) >= 2:
+                    # LineString / Polygon: primer punto [lon, lat]
+                    p_lat, p_lon = _pair_a_lat_lon(coords[0][1], coords[0][0])
+                    if lat is None:
+                        lat = p_lat
+                    if lon is None:
+                        lon = p_lon
+        elif isinstance(geom, (list, tuple)) and len(geom) >= 2:
+            p_lat, p_lon = _pair_a_lat_lon(geom[0], geom[1])
+            if lat is None:
+                lat = p_lat
+            if lon is None:
+                lon = p_lon
+
+    # 4. Lista plana de dos numeros en el propio evento [lon,lat] o [lat,lon]
+    if lat is None or lon is None:
+        for key in ('latlng', 'latlon', 'lonlat', 'lnglat'):
+            raw = evento.get(key)
+            if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+                p_lat, p_lon = _pair_a_lat_lon(raw[0], raw[1])
+                if lat is None:
+                    lat = p_lat
+                if lon is None:
+                    lon = p_lon
+                if lat is not None and lon is not None:
+                    break
 
     return lat, lon
 
@@ -590,8 +641,11 @@ class FleetManager:
 
         if lat is None or lon is None:
             logger.warning(
-                "[Flota] Evento %s sin coordenadas validas, descartado. payload=%r",
-                ev_id, evento,
+                "[Flota] Evento %s sin coordenadas validas, descartado. "
+                "type=%s keys_disponibles=%s payload_breve=%r",
+                ev_id, tipo_evento,
+                list(evento.keys()),
+                {k: v for k, v in list(evento.items())[:8]},
             )
             self._registrar_traza(ev_id, 'descartado',
                                   'sin coordenadas',

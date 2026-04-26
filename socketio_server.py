@@ -202,6 +202,18 @@ def _mapear_tipo_apoyo(tipo: str) -> str:
     }
     return mapa.get(tipo, "accident")
 
+def _leer_clima_para_broadcast() -> tuple:
+    """Devuelve (factor_clima, clima_actual) sin propagar excepciones."""
+    try:
+        from entorno import obtener_contexto_entorno_completo
+        ctx = obtener_contexto_entorno_completo() or {}
+        clima = ctx.get('clima') or {}
+        factor = float(clima.get('condicion', {}).get('factor_velocidad', 1.0) or 1.0)
+        return factor, clima
+    except Exception:
+        return 1.0, {}
+
+
 def bucle_difusion(fleet):
     while True:
         try:
@@ -214,10 +226,14 @@ def bucle_difusion(fleet):
             if not hay_clientes:
                 continue
 
+            factor_clima, clima_actual = _leer_clima_para_broadcast()
+
             payload = {
                 "vehiculos": fleet.estado_broadcast(),
                 "incidentes": fleet.listado_incidentes(),
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "factor_clima": factor_clima,
+                "clima_actual": clima_actual,
             }
             socketio.emit('actualizacion_flotas', payload, room=SALA_TODOS)
 

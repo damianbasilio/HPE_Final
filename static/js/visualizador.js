@@ -102,9 +102,18 @@ document.addEventListener('DOMContentLoaded', () => {
       decisiones: estadoActual.decisiones,
       modo: 'tiempo_real',
       sim_id: 'live',
-      factor_clima: estadoActual.factor_clima,
-      clima_actual: estadoActual.clima_actual,
+      // El broadcast ahora incluye factor_clima y clima_actual directamente
+      factor_clima: data.factor_clima != null ? data.factor_clima : estadoActual.factor_clima,
+      clima_actual: data.clima_actual || estadoActual.clima_actual,
     });
+  });
+
+  // Evento puntual cuando llega nueva lectura de clima desde Kafka
+  socket.on('clima_actualizado', (data) => {
+    if (fuenteActiva !== 'live') return;
+    estadoActual.factor_clima = data.factor_clima ?? estadoActual.factor_clima;
+    estadoActual.clima_actual = data.clima_actual || estadoActual.clima_actual;
+    renderClima();
   });
 
   socket.on('mensaje_central', (data) => {

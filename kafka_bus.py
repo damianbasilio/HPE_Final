@@ -15,22 +15,62 @@ from config import (
     KAFKA_TOPIC_CLIMA,
     KAFKA_TOPIC_EVENTOS,
     KAFKA_TOPIC_TELEMETRIA,
+    KAFKA_OFFSET_CLIMA,
+    KAFKA_OFFSET_EVENTOS,
     TEAM_ID
 )
 
 logger = logging.getLogger(__name__)
 
+
+def _deserializar_json_seguro(raw):
+    if raw is None:
+        return {}
+
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", errors="replace")
+
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return {"raw": raw}
+
+    if isinstance(raw, dict):
+        return raw
+
+    return {"raw": raw}
+
+
 def _kafka_common_config() -> dict:
+    usuario = (KAFKA_USERNAME or "").strip()
+    password = (KAFKA_PASSWORD or "").strip()
+    requested_protocol = (KAFKA_SECURITY_PROTOCOL or "PLAINTEXT").upper()
+
     cfg: dict = {
         "bootstrap_servers": KAFKA_BROKER,
-        "security_protocol": KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        "security_protocol": requested_protocol,
     }
-    if KAFKA_USERNAME and KAFKA_PASSWORD:
-        cfg["security_protocol"] = KAFKA_SECURITY_PROTOCOL or "SASL_PLAINTEXT"
+
+    if usuario and password:
+        cfg["security_protocol"] = requested_protocol if requested_protocol.startswith("SASL") else "SASL_PLAINTEXT"
         cfg["sasl_mechanism"] = KAFKA_SASL_MECHANISM or "PLAIN"
-        cfg["sasl_plain_username"] = KAFKA_USERNAME
-        cfg["sasl_plain_password"] = KAFKA_PASSWORD
+        cfg["sasl_plain_username"] = usuario
+        cfg["sasl_plain_password"] = password
+    elif requested_protocol.startswith("SASL"):
+        # Si se pide SASL sin credenciales, degradamos a PLAINTEXT para evitar
+        # que el consumidor quede inutilizable por configuracion incompleta.
+        cfg["security_protocol"] = "PLAINTEXT"
+        logger.warning(
+            "Kafka configurado con %s pero sin usuario/contrasena; usando PLAINTEXT.",
+            requested_protocol,
+        )
+
     return cfg
+
 
 class KafkaBus:
     def __init__(self, max_cache: int = 2000):
@@ -61,20 +101,32 @@ class KafkaBus:
 
         try:
             self._weather_consumer = self._crear_consumer(
-                KAFKA_TOPIC_CLIMA, group_id=f"{TEAM_ID}-weather"
+                KAFKA_TOPIC_CLIMA,
+                group_id=f"{TEAM_ID}-weather",
+                auto_offset_reset=KAFKA_OFFSET_CLIMA,
             )
-            logger.info("Kafka consumer suscrito a %s", KAFKA_TOPIC_CLIMA)
+            logger.info(
+                "Kafka consumer suscrito a %s (group=%s offset=%s)",
+                KAFKA_TOPIC_CLIMA,
+                f"{TEAM_ID}-weather",
+                KAFKA_OFFSET_CLIMA,
+            )
         except Exception as exc:
             logger.error("Kafka consumer clima NO disponible (%s).", exc, exc_info=True)
             self._weather_consumer = None
 
         try:
-            # Use 'latest' so only new/active incidents are processed in real-time.
-            # Historical replay is handled by the simulation system (simulaciones.py).
             self._events_consumer = self._crear_consumer(
-                KAFKA_TOPIC_EVENTOS, group_id=f"{TEAM_ID}-events", auto_offset_reset="latest"
+                KAFKA_TOPIC_EVENTOS,
+                group_id=f"{TEAM_ID}-events",
+                auto_offset_reset=KAFKA_OFFSET_EVENTOS,
             )
-            logger.info("Kafka consumer suscrito a %s (offset=latest)", KAFKA_TOPIC_EVENTOS)
+            logger.info(
+                "Kafka consumer suscrito a %s (group=%s offset=%s)",
+                KAFKA_TOPIC_EVENTOS,
+                f"{TEAM_ID}-events",
+                KAFKA_OFFSET_EVENTOS,
+            )
         except Exception as exc:
             logger.error("Kafka consumer eventos NO disponible (%s).", exc, exc_info=True)
             self._events_consumer = None
@@ -88,12 +140,16 @@ class KafkaBus:
             )
 
     def _crear_consumer(self, topic: str, group_id: str, auto_offset_reset: str = "earliest") -> KafkaConsumer:
+        auto_offset = (auto_offset_reset or "earliest").lower()
+        if auto_offset not in ("earliest", "latest"):
+            auto_offset = "earliest"
+
         return KafkaConsumer(
             topic,
-            group_id=None,
-            auto_offset_reset=auto_offset_reset,
-            enable_auto_commit=False,
-            value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+            group_id=group_id,
+            auto_offset_reset=auto_offset,
+            enable_auto_commit=True,
+            value_deserializer=_deserializar_json_seguro,
             session_timeout_ms=15000,
             request_timeout_ms=40000,
             api_version_auto_timeout_ms=10000,
@@ -134,7 +190,13 @@ class KafkaBus:
                 pass
 
     def _bucle_consumer(self, consumer: KafkaConsumer, cache: Deque[dict], hook, etiqueta: str) -> None:
-        logger.info("[Kafka] Bucle %s iniciado (auto_offset_reset=earliest, group_id=None)", etiqueta)
+        cfg = getattr(consumer, "config", {}) or {}
+        logger.info(
+            "[Kafka] Bucle %s iniciado (auto_offset_reset=%s, group_id=%s)",
+            etiqueta,
+            cfg.get("auto_offset_reset"),
+            cfg.get("group_id"),
+        )
         while not self._stop_event.is_set():
             try:
                 resultado = consumer.poll(timeout_ms=1000)
@@ -146,6 +208,8 @@ class KafkaBus:
                 for mensaje in resultado.values():
                     for record in mensaje:
                         valor = record.value
+                        if not isinstance(valor, dict):
+                            valor = {"raw": valor}
                         cache.append(valor)
                         if etiqueta == "weather":
                             station_id = valor.get("station_id")

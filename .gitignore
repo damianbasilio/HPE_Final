@@ -4,6 +4,7 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
+instrucciones.md
 
 # Sesiones / logs / datos generados
 flask_session/

@@ -20,18 +20,33 @@ MAPA_EVENTO_A_UNIDAD = {
     "fire": "bomberos",
     "hazmat_spill": "bomberos",
     "medical_emergency": "ambulancia",
+    "medical_alert": "ambulancia",
     "accident": "policia",
+    "traffic_accident": "policia",
     "lane_closure": "policia",
+    "road_block": "policia",
     "construction": "policia",
     "storm": "proteccion_civil",
     "flood": "proteccion_civil",
     "public_event": "policia",
     "power_outage": "proteccion_civil",
+    "blackout": "proteccion_civil",
     "earthquake": "proteccion_civil",
     "marine_rescue": "proteccion_civil",
 }
 
 EVENTOS_CON_SCOUT = {"fire", "flood", "marine_rescue", "earthquake", "hazmat_spill"}
+
+ALIAS_TIPO_EVENTO = {
+    "medicalalert": "medical_emergency",
+    "medical_alert": "medical_emergency",
+    "medical": "medical_emergency",
+    "traffic_accident": "accident",
+    "collision": "accident",
+    "road_block": "lane_closure",
+    "roadblock": "lane_closure",
+    "blackout": "power_outage",
+}
 
 PLANTILLA_DEFECTO: List[tuple] = [
     ("policia",          "combustion", "Patrulla 01"),
@@ -68,25 +83,139 @@ def _to_float(value):
     except (TypeError, ValueError):
         return None
 
+
+def _pair_a_lat_lon(a, b):
+    x = _to_float(a)
+    y = _to_float(b)
+    if x is None or y is None:
+        return None, None
+
+    # Detecta pares lon/lat frecuentes y los invierte.
+    if abs(x) > 90 and abs(y) <= 90:
+        return y, x
+    if x < -20 and -90 <= y <= 90:
+        return y, x
+    return x, y
+
+
+def _normalizar_tipo_evento(raw_tipo) -> str:
+    if raw_tipo is None:
+        return "incident"
+
+    tipo = str(raw_tipo).strip().lower().replace("-", "_").replace(" ", "_")
+    if not tipo:
+        return "incident"
+    return ALIAS_TIPO_EVENTO.get(tipo, tipo)
+
+
+def _normalizar_severidad(raw_sev) -> str:
+    if raw_sev is None:
+        return "medium"
+
+    if isinstance(raw_sev, (int, float)):
+        val = float(raw_sev)
+        if val >= 0.9:
+            return "critical"
+        if val >= 0.7:
+            return "high"
+        if val >= 0.4:
+            return "medium"
+        return "low"
+
+    sev = str(raw_sev).strip().lower()
+    mapa = {
+        "p1": "critical",
+        "p2": "high",
+        "p3": "medium",
+        "p4": "low",
+        "critica": "critical",
+        "critical": "critical",
+        "alta": "high",
+        "high": "high",
+        "media": "medium",
+        "medium": "medium",
+        "baja": "low",
+        "low": "low",
+    }
+    return mapa.get(sev, "medium")
+
+
+def _desenvolver_evento(evento: dict) -> dict:
+    if not isinstance(evento, dict):
+        return evento
+
+    actual = evento
+    for _ in range(4):
+        siguiente = None
+        for key in ("payload", "event", "data", "message", "value"):
+            nested = actual.get(key)
+            if isinstance(nested, dict):
+                if any(
+                    campo in nested
+                    for campo in (
+                        "type", "event_type", "incident_type", "category", "eventType",
+                        "latitude", "lat", "location", "coordinates", "geometry", "position",
+                    )
+                ):
+                    siguiente = nested
+                    break
+        if not siguiente:
+            break
+        actual = siguiente
+
+    return actual
+
 def _extraer_coords(evento: dict):
     lat = _to_float(evento.get('latitude'))
     if lat is None:
         lat = _to_float(evento.get('lat'))
+    if lat is None:
+        lat = _to_float(evento.get('y'))
 
     lon = _to_float(evento.get('longitude'))
     if lon is None:
         lon = _to_float(evento.get('lon'))
     if lon is None:
         lon = _to_float(evento.get('lng'))
+    if lon is None:
+        lon = _to_float(evento.get('x'))
 
     if lat is None or lon is None:
-        loc = evento.get('location') or evento.get('coords') or evento.get('coordinates') or evento.get('position')
+        loc = (evento.get('location') or evento.get('coords') or evento.get('coordinates')
+               or evento.get('position') or evento.get('point'))
         if isinstance(loc, dict):
             lat = lat if lat is not None else _to_float(loc.get('lat') or loc.get('latitude'))
             lon = lon if lon is not None else _to_float(loc.get('lon') or loc.get('lng') or loc.get('longitude'))
         elif isinstance(loc, (list, tuple)) and len(loc) >= 2:
-            lat = lat if lat is not None else _to_float(loc[1] if abs(_to_float(loc[0]) or 0) > 90 else loc[0])
-            lon = lon if lon is not None else _to_float(loc[0] if abs(_to_float(loc[0]) or 0) > 90 else loc[1])
+            p_lat, p_lon = _pair_a_lat_lon(loc[0], loc[1])
+            lat = lat if lat is not None else p_lat
+            lon = lon if lon is not None else p_lon
+
+    if lat is None or lon is None:
+        geom = evento.get('geometry')
+        if isinstance(geom, dict):
+            g_type = str(geom.get('type') or '').lower()
+            coords = geom.get('coordinates')
+            if g_type == 'point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                p_lat, p_lon = _pair_a_lat_lon(coords[1], coords[0])
+                lat = lat if lat is not None else p_lat
+                lon = lon if lon is not None else p_lon
+            elif isinstance(coords, (list, tuple)) and coords:
+                first = coords[0]
+                if isinstance(first, (list, tuple)) and len(first) >= 2:
+                    p_lat, p_lon = _pair_a_lat_lon(first[1], first[0])
+                    lat = lat if lat is not None else p_lat
+                    lon = lon if lon is not None else p_lon
+        elif isinstance(geom, (list, tuple)) and geom:
+            first = geom[0]
+            if isinstance(first, (list, tuple)) and len(first) >= 2:
+                p_lat, p_lon = _pair_a_lat_lon(first[0], first[1])
+                lat = lat if lat is not None else p_lat
+                lon = lon if lon is not None else p_lon
+            elif len(geom) >= 2:
+                p_lat, p_lon = _pair_a_lat_lon(geom[0], geom[1])
+                lat = lat if lat is not None else p_lat
+                lon = lon if lon is not None else p_lon
 
     return lat, lon
 
@@ -237,13 +366,41 @@ class FleetManager:
                                   payload={"raw": str(evento)})
             return None
 
-        tipo_evento = (evento.get('type') or evento.get('event_type')
-                       or evento.get('category') or 'incident')
+        evento = _desenvolver_evento(evento)
+
+        tipo_evento = _normalizar_tipo_evento(
+            evento.get('type')
+            or evento.get('event_type')
+            or evento.get('eventType')
+            or evento.get('incident_type')
+            or evento.get('category')
+            or evento.get('event')
+            or 'incident'
+        )
         lat, lon = _extraer_coords(evento)
-        ev_id = (evento.get('id') or evento.get('event_id')
-                 or evento.get('incident_id') or f"EV-{uuid.uuid4().hex[:6]}")
-        sev = (evento.get('severity') or evento.get('priority') or 'medium')
-        resolved_at = evento.get('resolved_at') or evento.get('closed_at')
+        ev_id = (
+            evento.get('id')
+            or evento.get('event_id')
+            or evento.get('incident_id')
+            or evento.get('uuid')
+            or f"EV-{uuid.uuid4().hex[:6]}"
+        )
+        sev = _normalizar_severidad(evento.get('severity') or evento.get('priority'))
+
+        resolved_at = (
+            evento.get('resolved_at')
+            or evento.get('closed_at')
+            or evento.get('ended_at')
+            or evento.get('finished_at')
+        )
+        estado_evento = str(
+            evento.get('status')
+            or evento.get('event_status')
+            or evento.get('incident_status')
+            or ''
+        ).strip().lower()
+        if not resolved_at and estado_evento in ('resolved', 'closed', 'cancelled'):
+            resolved_at = evento.get('updated_at') or datetime.now().isoformat()
 
         logger.info(
             "[Flota] Evento Kafka recibido: id=%s type=%s severity=%s lat=%s lon=%s resolved_at=%s",
@@ -273,6 +430,8 @@ class FleetManager:
         evento_norm['latitude'] = float(lat)
         evento_norm['longitude'] = float(lon)
         evento_norm['severity'] = sev
+        if not evento_norm.get('started_at'):
+            evento_norm['started_at'] = evento.get('timestamp') or datetime.now().isoformat()
 
         with self._lock:
             existente = self.incidentes.get(ev_id)

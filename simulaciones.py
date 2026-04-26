@@ -143,7 +143,26 @@ class SimulacionReplay:
 
         if not isinstance(valor, dict):
             return
-        if valor.get('type') and valor.get('latitude') is not None:
+
+        station_id = valor.get('station_id')
+        if station_id and (
+            valor.get('temperature_c') is not None
+            or valor.get('humidity_pct') is not None
+            or valor.get('precipitation_mm') is not None
+        ):
+            try:
+                self._bus._weather_cache.append(valor)
+                self._bus._weather_by_station[station_id] = valor
+            except Exception:
+                pass
+            return
+
+        tiene_coords = any(
+            valor.get(k) is not None
+            for k in ('latitude', 'longitude', 'lat', 'lon', 'lng', 'location', 'coordinates', 'geometry')
+        )
+        tipo = valor.get('type') or valor.get('event_type') or valor.get('incident_type')
+        if tipo and tiene_coords:
             valor = dict(valor)
             valor['origen'] = f'replay:{self.sim_id}'
             self._fleet.manejar_evento(valor)

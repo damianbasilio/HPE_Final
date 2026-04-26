@@ -8,7 +8,7 @@ import uuid
 
 from flask_socketio import SocketIO, emit, join_room
 
-from config import INTERVALO_ACTUALIZACION
+from config import CENTRO_ARUBA, INTERVALO_ACTUALIZACION
 
 logger = logging.getLogger(__name__)
 
@@ -114,16 +114,37 @@ def registrar_manejadores(fleet):
         elif accion == 'apoyo':
             tipo = (data or {}).get('tipo') or 'policia'
             veh = fleet.obtener_vehiculo(vehiculo_id) if vehiculo_id else None
-            ref_lat = veh.gps.latitud if veh else None
-            ref_lon = veh.gps.longitud if veh else None
+
+            lat_solicitada = _to_float((data or {}).get('lat'))
+            lon_solicitada = _to_float((data or {}).get('lon'))
+
+            ref_lat = lat_solicitada if lat_solicitada is not None else (veh.gps.latitud if veh else None)
+            ref_lon = lon_solicitada if lon_solicitada is not None else (veh.gps.longitud if veh else None)
+
+            if ref_lat is None or ref_lon is None:
+                incidente_ref = next(
+                    (
+                        inc for inc in fleet.listado_incidentes()
+                        if inc.get('status') in ('assigned', 'en_route', 'on_scene', 'queued')
+                        and inc.get('lat') is not None and inc.get('lon') is not None
+                    ),
+                    None,
+                )
+                if incidente_ref:
+                    ref_lat = incidente_ref.get('lat')
+                    ref_lon = incidente_ref.get('lon')
+
+            if ref_lat is None or ref_lon is None:
+                ref_lat, ref_lon = CENTRO_ARUBA
+
             evento = {
                 "id": f"APOYO-{uuid.uuid4().hex[:6]}",
                 "type": _mapear_tipo_apoyo(tipo),
                 "severity": (data or {}).get('severity', 'high'),
                 "title": (data or {}).get('title') or f"Apoyo solicitado ({tipo})",
                 "description": (data or {}).get('description', 'Solicitud de apoyo desde operador'),
-                "latitude": (data or {}).get('lat', ref_lat),
-                "longitude": (data or {}).get('lon', ref_lon),
+                "latitude": float(ref_lat),
+                "longitude": float(ref_lon),
                 "started_at": datetime.now().isoformat(),
                 "origen": "operador"
             }
@@ -144,6 +165,15 @@ def registrar_manejadores(fleet):
 
         else:
             emit('control_resultado', {"accion": accion, "ok": False, "error": "Accion desconocida"})
+
+
+def _to_float(value):
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 def _mapear_tipo_apoyo(tipo: str) -> str:
     mapa = {

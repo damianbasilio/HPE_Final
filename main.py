@@ -153,6 +153,8 @@ def construir_telemetria(veh) -> dict:
     estado = veh.obtener_estado()
     gps = estado.get('gps') or {}
     incidente = fleet._incidente_actual(veh.id)
+    costes = estado.get('costes') or {}
+    especializado = estado.get('especializado') or {}
 
     state, availability = _derivar_state_availability(estado)
     priority = None
@@ -161,6 +163,19 @@ def construir_telemetria(veh) -> dict:
 
     velocidad = float(estado.get('velocidad') or 0.0)
     heading = float(getattr(veh, 'heading', 0.0)) if velocidad > 0.5 else None
+
+    payload_incidente = None
+    if incidente:
+        payload_incidente = {
+            "incident_id": incidente.get("incident_id"),
+            "incident_type": incidente.get("incident_type"),
+            "incident_status": incidente.get("incident_status") or incidente.get("status"),
+        }
+
+    payload_costes = {
+        "estimated_operational_cost": round(float(costes.get('coste_intervencion_eur') or 0.0), 2),
+        "currency": "EUR",
+    }
 
     return {
         "schema_version": "1.0.0",
@@ -188,10 +203,12 @@ def construir_telemetria(veh) -> dict:
             "availability": availability,
             "priority": priority,
         },
-        "incident": None,
-        "costs": None,
-        "specialty_data": {},
-        "metadata": None,
+        "incident": payload_incidente,
+        "costs": payload_costes,
+        "specialty_data": especializado,
+        "metadata": {
+            "producer": "digital-twin-backend",
+        },
     }
 
 bus.iniciar(on_event=fleet.manejar_evento)

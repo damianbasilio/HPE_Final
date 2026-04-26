@@ -28,42 +28,103 @@ import uuid
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-from config import ARUBA_LANDMARKS, CENTRO_ARUBA
+from config import ARUBA_LANDMARKS, CENTRO_ARUBA, ARUBA_BOUNDS
 
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Landmarks clasificados por categoria geografica
+# ---------------------------------------------------------------------------
+# Categoria: 'urbano' -> interior / ciudad, jitter bajo, bueno para cualquier
+#            evento terrestre.
+#            'costero' -> junto al mar/playa; solo eventos marinos y algunos
+#            meteorologicos. Jitter muy pequeno para no caer al agua.
+#            'rural'  -> campo o zona poco poblada; accidentes de carretera,
+#            incendios de vegetacion, etc.
+#            'industrial' -> aeropuerto, zonas industriales.
+
+_LANDMARKS_EXTENDIDOS = [
+    # (nombre, lat, lon, categoria, jitter_max_deg)
+    ("Oranjestad",               12.5240, -70.0270, "urbano",     0.0025),
+    ("Eagle Beach",              12.5538, -70.0518, "costero",    0.0012),
+    ("Palm Beach",               12.5762, -70.0489, "costero",    0.0012),
+    ("Noord",                    12.5870, -70.0411, "urbano",     0.0025),
+    ("Hadicurari",               12.5818, -70.0469, "costero",    0.0010),
+    ("California Lighthouse",    12.6164, -70.0488, "rural",      0.0018),
+    ("Santa Cruz",               12.5363, -69.9628, "urbano",     0.0025),
+    ("Paradera",                 12.5197, -69.9851, "urbano",     0.0025),
+    ("Tanki Leendert",           12.5474, -70.0089, "urbano",     0.0025),
+    ("Savaneta",                 12.4517, -69.9281, "costero",    0.0012),
+    ("Pos Chiquito",             12.4839, -69.9519, "rural",      0.0020),
+    ("San Nicolas",              12.4350, -69.9100, "urbano",     0.0025),
+    ("Seroe Colorado",           12.4283, -69.8836, "costero",    0.0012),
+    ("Sint Cruz",                12.5120, -69.9750, "urbano",     0.0025),
+    ("Bushiribana",              12.5680, -69.9420, "rural",      0.0018),
+    ("Aeropuerto Reina Beatrix", 12.5014, -70.0152, "industrial", 0.0020),
+]
+
+# Que categorias de landmark puede usar cada tipo de evento.
+# Orden de preferencia: primera lista = preferido, si no hay se usa fallback urbano.
+_AFINIDAD_TIPO: dict = {
+    "medical_emergency": ["urbano", "rural", "industrial"],
+    "accident":          ["urbano", "rural", "industrial"],
+    "fire":              ["urbano", "rural", "industrial"],
+    "lane_closure":      ["urbano", "rural", "industrial"],
+    "storm":             ["costero", "rural", "urbano"],
+    "flood":             ["costero", "rural", "urbano"],
+    "power_outage":      ["urbano", "industrial"],
+    "marine_rescue":     ["costero"],
+    "hazmat_spill":      ["industrial", "rural", "urbano"],
+    "public_event":      ["urbano"],  # concentraciones solo en ciudad
+    "construction":      ["urbano", "rural"],
+    "earthquake":        ["urbano", "rural", "costero"],
+    "blackout":          ["urbano", "industrial"],
+    "road_block":        ["urbano", "rural"],
+}
+
+# Construimos indices por categoria para acceso rapido
+_POR_CATEGORIA: dict[str, list] = {}
+for _lm in _LANDMARKS_EXTENDIDOS:
+    _cat = _lm[3]
+    _POR_CATEGORIA.setdefault(_cat, []).append(_lm)
+
+
+# ---------------------------------------------------------------------------
+# Catalogo de incidentes con titulos y descripciones contextualizados
+# ---------------------------------------------------------------------------
+
 CATALOGO_INCIDENTES = [
     # (peso, tipo_evento, titulo, descripcion, severidad_pesos)
     (28, "medical_emergency", "Aviso medico ciudadano",
-     "Persona requiere asistencia sanitaria urgente",
+     "Persona en via publica requiere asistencia sanitaria urgente",
      {"low": 1, "medium": 4, "high": 3, "critical": 1}),
-    (18, "accident", "Colision en via publica",
-     "Vehiculos implicados, posibles heridos",
+    (18, "accident", "Colision de trafico",
+     "Vehiculos implicados en calzada; posibles heridos",
      {"low": 1, "medium": 4, "high": 3, "critical": 1}),
     (10, "fire", "Conato de incendio",
-     "Humo visible reportado por vecinos",
+     "Humo visible en estructura reportado por vecinos",
      {"low": 1, "medium": 3, "high": 4, "critical": 2}),
     (8, "lane_closure", "Obstruccion en calzada",
-     "Carga caida o averia bloquea trafico",
+     "Carga caida o averia bloquea un carril de circulacion",
      {"low": 4, "medium": 3, "high": 1, "critical": 0}),
-    (6, "storm", "Aviso meteorologico local",
-     "Rafagas y precipitacion concentrada",
+    (6, "storm", "Alerta meteorologica costera",
+     "Rafagas y precipitacion intensa en la costa",
      {"low": 2, "medium": 4, "high": 2, "critical": 1}),
-    (5, "flood", "Inundacion puntual",
-     "Acumulacion de agua afecta movilidad",
+    (5, "flood", "Inundacion en calzada",
+     "Acumulacion de agua de lluvia corta la via",
      {"low": 1, "medium": 4, "high": 3, "critical": 1}),
-    (5, "power_outage", "Corte electrico sectorial",
-     "Falta de suministro afecta a la zona",
+    (5, "power_outage", "Corte de suministro electrico",
+     "Fallo de red afecta a varios bloques del sector",
      {"low": 3, "medium": 4, "high": 2, "critical": 0}),
-    (4, "marine_rescue", "Aviso marino costero",
-     "Embarcacion / banista en apuro",
+    (4, "marine_rescue", "Rescate marino",
+     "Banista / embarcacion ligera en apuros frente a la costa",
      {"low": 1, "medium": 3, "high": 4, "critical": 2}),
-    (3, "hazmat_spill", "Derrame de sustancia",
-     "Liquido sospechoso requiere contencion",
+    (3, "hazmat_spill", "Derrame de sustancia peligrosa",
+     "Liquido sospechoso en zona industrial requiere contencion",
      {"low": 1, "medium": 3, "high": 4, "critical": 2}),
-    (3, "public_event", "Concentracion publica",
-     "Aglomeracion no programada en via",
+    (3, "public_event", "Concentracion publica en calzada",
+     "Aglomeracion no programada bloquea trafico urbano",
      {"low": 4, "medium": 3, "high": 1, "critical": 0}),
 ]
 
@@ -93,23 +154,50 @@ def _elegir_categoria() -> tuple:
     return CATALOGO_INCIDENTES[0]
 
 
-def _coordenadas_demo() -> tuple:
-    """Selecciona un landmark al azar y aplica jitter pequeno (~150-400m)."""
-    if ARUBA_LANDMARKS:
-        _, lat_l, lon_l = random.choice(ARUBA_LANDMARKS)
-    else:
-        lat_l, lon_l = CENTRO_ARUBA
+def _coordenadas_para_tipo(tipo_evento: str) -> tuple:
+    """Selecciona landmark apropiado para el tipo de evento y aplica jitter.
 
-    jitter_lat = random.uniform(-0.0035, 0.0035)
-    jitter_lon = random.uniform(-0.0035, 0.0035)
-    return float(lat_l + jitter_lat), float(lon_l + jitter_lon)
+    Reglas:
+    - Cada tipo tiene categorias de landmark preferidas (afinidad).
+    - El jitter maximo por landmark esta calibrado para no caer al mar.
+    - Se valida que el punto final este dentro del bounding box terrestre
+      de Aruba; si no, se reintenta hasta 5 veces antes de usar el centro.
+    """
+    lat_min, lat_max, lon_min, lon_max = ARUBA_BOUNDS
+
+    categorias = _AFINIDAD_TIPO.get(tipo_evento, ["urbano", "rural"])
+
+    # Construir lista de candidatos en orden de preferencia
+    candidatos: list = []
+    for cat in categorias:
+        candidatos.extend(_POR_CATEGORIA.get(cat, []))
+    if not candidatos:
+        # Fallback: todos los landmarks
+        candidatos = _LANDMARKS_EXTENDIDOS
+
+    for _intento in range(6):
+        _nombre, lat_l, lon_l, _cat, jitter_max = random.choice(candidatos)
+        jitter_lat = random.uniform(-jitter_max, jitter_max)
+        jitter_lon = random.uniform(-jitter_max, jitter_max)
+        lat = lat_l + jitter_lat
+        lon = lon_l + jitter_lon
+        # Verificar que el punto cae dentro del bounding box de Aruba
+        if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+            return float(lat), float(lon)
+
+    # Fallback seguro: centro de Aruba con jitter minimo
+    lat_c, lon_c = CENTRO_ARUBA
+    return (
+        float(lat_c + random.uniform(-0.001, 0.001)),
+        float(lon_c + random.uniform(-0.001, 0.001)),
+    )
 
 
 def construir_evento_demo() -> dict:
-    """Genera un evento sintetico listo para `FleetManager.manejar_evento`."""
+    """Genera un evento sintetico geograficamente coherente."""
     _, tipo, titulo, descripcion, pesos_sev = _elegir_categoria()
     severidad = _elegir_severidad(pesos_sev)
-    lat, lon = _coordenadas_demo()
+    lat, lon = _coordenadas_para_tipo(tipo)
     return {
         "id": f"DEMO-{uuid.uuid4().hex[:8]}",
         "type": tipo,

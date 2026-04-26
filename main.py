@@ -26,6 +26,11 @@ from config import (
     TEAM_ID,
     TIEMPO_SESION,
 )
+from costos import (
+    eliminar_tarifa_personalizada,
+    registrar_tarifa_personalizada,
+    tarifas_completas,
+)
 from entorno import configurar_bus, obtener_contexto_entorno_completo
 from flota import FleetManager
 from ia import responder_chat
@@ -173,9 +178,36 @@ def construir_telemetria(veh) -> dict:
             "incident_status": incidente.get("incident_status") or incidente.get("status"),
         }
 
+    desglose_actual = costes.get('desglose_actual') or {}
+    desglose_acum = costes.get('desglose_acumulado') or {}
     payload_costes = {
         "estimated_operational_cost": round(float(costes.get('coste_intervencion_eur') or 0.0), 2),
+        "accumulated_total_cost": round(float(costes.get('coste_total_eur') or 0.0), 2),
         "currency": "EUR",
+        "rate": {
+            "per_minute": float(costes.get('coste_min_eur') or 0.0),
+            "activation": float(costes.get('coste_activacion_eur') or 0.0),
+            "crew_size": int(costes.get('dotacion') or 0),
+        },
+        "current_breakdown": {
+            "activation_cost": float(desglose_actual.get('coste_activacion_eur') or 0.0),
+            "personnel_cost": float(desglose_actual.get('coste_personal_eur') or 0.0),
+            "energy_cost": float(desglose_actual.get('coste_energia_eur') or 0.0),
+            "wear_cost": float(desglose_actual.get('coste_desgaste_eur') or 0.0),
+            "response_time_premium": float(desglose_actual.get('prima_respuesta_eur') or 0.0),
+            "billed_minutes": float(desglose_actual.get('minutos_facturados') or 0.0),
+            "response_time_seconds": desglose_actual.get('tiempo_respuesta_seg'),
+            "sla_seconds": desglose_actual.get('sla_respuesta_seg'),
+            "sla_met": desglose_actual.get('sla_cumplido'),
+        },
+        "lifetime_breakdown": {
+            "personnel_cost": float(desglose_acum.get('coste_personal_eur') or 0.0),
+            "energy_cost": float(desglose_acum.get('coste_energia_eur') or 0.0),
+            "wear_cost": float(desglose_acum.get('coste_desgaste_eur') or 0.0),
+            "activation_cost": float(desglose_acum.get('coste_activacion_eur') or 0.0),
+            "response_time_premium": float(desglose_acum.get('prima_respuesta_eur') or 0.0),
+            "interventions": int(costes.get('intervenciones_realizadas') or 0),
+        },
     }
 
     return {
@@ -228,6 +260,8 @@ def proteger_vistas():
         'sim_speed', 'ask_fleet', 'weather_stations', 'weather_reading', 'index',
         'login', 'static', 'ciudadano', 'api_contexto',
         'internal_vehicles', 'internal_incidents',
+        'costs_summary', 'costs_rates', 'costs_incidents', 'costs_vehicle',
+        'costs_estimate',
     }
     if request.endpoint in public_endpoints or request.path.startswith('/static/'):
         return
@@ -558,6 +592,96 @@ def internal_vehicles():
 def internal_incidents():
     return jsonify({"incidents": fleet.listado_incidentes()})
 
+@app.route('/costs/summary')
+def costs_summary():
+    return jsonify(fleet.resumen_costes())
+
+@app.route('/costs/incidents')
+def costs_incidents():
+    try:
+        limite = int(request.args.get('limit', '100'))
+    except (TypeError, ValueError):
+        limite = 100
+    intervenciones = fleet.listado_intervenciones_costes(limite=limite)
+    return jsonify({
+        "total": len(intervenciones),
+        "interventions": intervenciones,
+        "currency": "EUR",
+    })
+
+@app.route('/costs/vehicle/<vehicle_id>')
+def costs_vehicle(vehicle_id):
+    detalle = fleet.coste_vehiculo(vehicle_id)
+    if detalle is None:
+        return jsonify({
+            "detail": [{
+                "loc": ["path", "vehicle_id"],
+                "msg": "Vehicle not found",
+                "type": "value_error.not_found",
+                "input": vehicle_id,
+            }]
+        }), 422
+    return jsonify(detalle)
+
+@app.route('/costs/rates', methods=['GET', 'POST', 'DELETE'])
+def costs_rates():
+    if request.method == 'GET':
+        return jsonify({
+            "currency": "EUR",
+            "rates": tarifas_completas(),
+        })
+
+    if not session.get('autenticado') or session.get('rol') != 'operador':
+        return jsonify({"error": "No autorizado: se requiere rol operador"}), 403
+
+    payload = request.get_json(silent=True) or {}
+
+    if request.method == 'DELETE':
+        tipo = (payload.get('tipo') or request.args.get('tipo') or '').strip()
+        energia = (payload.get('energia') or request.args.get('energia') or '').strip()
+        if not tipo or not energia:
+            return jsonify({"error": "Faltan 'tipo' y 'energia'"}), 400
+        ok = eliminar_tarifa_personalizada(tipo, energia)
+        if not ok:
+            return jsonify({
+                "error": "No se puede eliminar: tarifa bloqueada o inexistente",
+                "tipo": tipo,
+                "energia": energia,
+            }), 400
+        return jsonify({"ok": True, "tipo": tipo, "energia": energia})
+
+    try:
+        tarifa = registrar_tarifa_personalizada(
+            tipo=payload.get('tipo'),
+            energia=payload.get('energia'),
+            coste_min=payload.get('coste_min'),
+            coste_activacion=payload.get('coste_activacion'),
+            dotacion=payload.get('dotacion', 1),
+            velocidad_max=payload.get('velocidad_max'),
+            distribucion=payload.get('distribucion'),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"ok": True, "rate": tarifa})
+
+@app.route('/costs/estimate', methods=['POST'])
+def costs_estimate():
+    payload = request.get_json(silent=True) or {}
+    tipo = payload.get('tipo')
+    energia = payload.get('energia') or payload.get('propulsion')
+    minutos = payload.get('minutos', 30)
+    tiempo_respuesta = payload.get('tiempo_respuesta_seg')
+
+    if not tipo or not energia:
+        return jsonify({"error": "Faltan 'tipo' y 'energia'/'propulsion'"}), 400
+
+    estimacion = fleet.estimar_coste_intervencion(tipo, energia, minutos, tiempo_respuesta)
+    if not estimacion:
+        return jsonify({
+            "error": f"Tarifa no encontrada para {tipo}/{energia}"
+        }), 404
+    return jsonify(estimacion)
+
 @app.route('/simulations')
 def list_simulations():
     return jsonify({"simulations": gestor_simulaciones.listar()})
@@ -718,11 +842,20 @@ def construir_contexto_chat() -> dict:
     for v in vehiculos:
         flota_resumen["por_tipo"][v['tipo']] = flota_resumen["por_tipo"].get(v['tipo'], 0) + 1
 
+    resumen_costes = fleet.resumen_costes()
+    costes_chat = {
+        "totales": resumen_costes.get('totales'),
+        "desglose_acumulado": resumen_costes.get('desglose_acumulado'),
+        "sla_respuesta": resumen_costes.get('sla_respuesta'),
+        "top_tipos": resumen_costes.get('por_tipo', [])[:5],
+    }
+
     return {
         "clima": contexto_entorno.get('clima'),
         "eventos": contexto_entorno.get('eventos', []),
         "alertas": contexto_entorno.get('alertas_entorno', []),
         "flota": flota_resumen,
+        "costes": costes_chat,
         "incidentes_activos": [i for i in fleet.listado_incidentes()
                                 if i.get('status') in ('en_route', 'on_scene', 'assigned')],
     }

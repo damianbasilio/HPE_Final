@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     socket = { on: () => {}, emit: () => {} };
   }
 
-  let estadoActual = { vehiculos: [], incidentes: [] };
+  let estadoActual = { vehiculos: [], incidentes: [], costes: null };
   let datosRecibidos = false;
 
   socket.on('connect', () => actualizarConexion(true));
@@ -43,21 +43,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function cargarDatosRest() {
     try {
-      const [resV, resI] = await Promise.all([
+      const [resV, resI, resC] = await Promise.all([
         fetch('/_internal/vehicles'),
         fetch('/_internal/incidents'),
+        fetch('/costs/summary'),
       ]);
       if (!resV.ok || !resI.ok) return;
       const dV = await resV.json();
       const dI = await resI.json();
+      const dC = resC.ok ? await resC.json() : null;
       estadoActual = {
         vehiculos: Array.isArray(dV) ? dV : (dV.vehicles || dV.vehiculos || []),
         incidentes: Array.isArray(dI) ? dI : (dI.incidents || dI.incidentes || []),
+        costes: dC,
       };
       panel.actualizarFlota(estadoActual);
       renderListaUnidades();
       renderListaIncidentes();
       renderResumen();
+      renderCostes();
     } catch (err) {
       console.warn('[operador] cargarDatosRest fallo:', err);
     }
@@ -65,20 +69,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
   socket.on('estado_inicial', (data) => {
     datosRecibidos = true;
-    estadoActual = { vehiculos: data.vehiculos || [], incidentes: data.incidentes || [] };
+    estadoActual = {
+      vehiculos: data.vehiculos || [],
+      incidentes: data.incidentes || [],
+      costes: data.costes || null,
+    };
     panel.actualizarFlota(estadoActual);
     renderListaUnidades();
     renderListaIncidentes();
     renderResumen();
+    renderCostes();
   });
 
   socket.on('actualizacion_flotas', (data) => {
     datosRecibidos = true;
-    estadoActual = { vehiculos: data.vehiculos || [], incidentes: data.incidentes || [] };
+    estadoActual = {
+      vehiculos: data.vehiculos || [],
+      incidentes: data.incidentes || [],
+      costes: data.costes || null,
+    };
     panel.actualizarFlota(estadoActual);
     renderListaUnidades();
     renderListaIncidentes();
     renderResumen();
+    renderCostes();
     if (panel.seleccionado) renderDetalle(panel.seleccionado);
   });
 
@@ -108,11 +122,67 @@ document.addEventListener('DOMContentLoaded', () => {
     const v = estadoActual.vehiculos;
     const total = v.length;
     const activos = v.filter((u) => u.escenario && u.escenario.en_progreso).length;
-    const coste = v.reduce((acc, u) => acc + ((u.costes && u.costes.coste_total_eur) || 0), 0);
+    const totales = (estadoActual.costes && estadoActual.costes.totales) || {};
+    const coste = totales.coste_total_eur != null
+      ? Number(totales.coste_total_eur)
+      : v.reduce((acc, u) => acc + ((u.costes && u.costes.coste_total_eur) || 0), 0);
 
     setText('flota-total', total);
     setText('flota-activos', activos);
     setText('flota-coste', coste.toFixed(2));
+  }
+
+  function renderCostes() {
+    const cont = document.getElementById('panel-costes');
+    if (!cont) return;
+    if (!estadoActual.costes) {
+      cont.innerHTML = '<p class="muted">Calculando coste operativo...</p>';
+      return;
+    }
+    cont.innerHTML = window.renderResumenCostes(estadoActual.costes);
+  }
+
+  const formTarifa = document.getElementById('cost-rate-form');
+  if (formTarifa) {
+    formTarifa.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const feedback = document.getElementById('cost-rate-feedback');
+      const datos = Object.fromEntries(new FormData(formTarifa).entries());
+      const payload = {
+        tipo: (datos.tipo || '').trim(),
+        energia: (datos.energia || '').trim(),
+        dotacion: parseInt(datos.dotacion, 10) || 0,
+        coste_min: parseFloat(datos.coste_min) || 0,
+        coste_activacion: parseFloat(datos.coste_activacion) || 0,
+        velocidad_max: datos.velocidad_max ? parseInt(datos.velocidad_max, 10) : null,
+      };
+      try {
+        const res = await fetch('/costs/rates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const body = await res.json();
+        if (!res.ok || body.error) {
+          if (feedback) {
+            feedback.textContent = body.error || 'Error registrando tarifa';
+            feedback.className = 'cost-feedback error';
+          }
+          return;
+        }
+        if (feedback) {
+          feedback.textContent = `Tarifa ${payload.tipo}/${payload.energia} guardada.`;
+          feedback.className = 'cost-feedback ok';
+        }
+        formTarifa.reset();
+        cargarDatosRest();
+      } catch (err) {
+        if (feedback) {
+          feedback.textContent = 'Error de red al registrar la tarifa';
+          feedback.className = 'cost-feedback error';
+        }
+      }
+    });
   }
 
   function renderListaUnidades() {
@@ -202,8 +272,8 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="detail-row"><span class="label">Temperatura</span><span class="value">${window.fmtNum(u.temperatura_motor, 0)} C</span></div>
       <div class="detail-row"><span class="label">Km totales</span><span class="value">${window.fmtNum(u.km_totales, 0)}</span></div>
       <div class="detail-row"><span class="label">Factor entorno</span><span class="value">x${window.fmtNum(u.factor_entorno || 1, 2)}</span></div>
-      <div class="detail-row"><span class="label">Coste actual</span><span class="value">${window.fmtEUR(u.costes?.coste_intervencion_eur)}</span></div>
-      <div class="detail-row"><span class="label">Coste total</span><span class="value">${window.fmtEUR(u.costes?.coste_total_eur)}</span></div>
+      <h4>Costes</h4>
+      ${renderCostesUnidad(u)}
       <h4>Especializado</h4>
       ${esp}
       ${incHtml}
@@ -219,6 +289,28 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     const asignar = document.getElementById(`btn-asignar-${u.id}`);
     if (asignar) asignar.addEventListener('click', () => abrirDialogoAsignacion(u));
+  }
+
+  function renderCostesUnidad(u) {
+    const c = u.costes || {};
+    const actual = c.desglose_actual || {};
+    const acum = c.desglose_acumulado || {};
+    const filaTrSeg = actual.tiempo_respuesta_seg != null
+      ? `${window.fmtSeconds(actual.tiempo_respuesta_seg)} ${actual.sla_cumplido ? '(SLA OK)' : '(SLA superado)'}`
+      : '--';
+    return `
+      <div class="detail-row"><span class="label">Tarifa</span><span class="value">${Number(c.coste_min_eur || 0).toFixed(2)} EUR/min · ${Number(c.coste_activacion_eur || 0).toFixed(2)} EUR activacion</span></div>
+      <div class="detail-row"><span class="label">Dotacion</span><span class="value">${c.dotacion ?? '--'} personas</span></div>
+      <div class="detail-row"><span class="label">Minutos facturados</span><span class="value">${Number(actual.minutos_facturados || 0).toFixed(2)} min</span></div>
+      <div class="detail-row"><span class="label">Coste actual</span><span class="value">${window.fmtEUR(c.coste_intervencion_eur)}</span></div>
+      <div class="detail-row"><span class="label">Coste total acumulado</span><span class="value">${window.fmtEUR(c.coste_total_eur)}</span></div>
+      <div class="detail-row"><span class="label">Tiempo respuesta</span><span class="value">${filaTrSeg}</span></div>
+      <div class="detail-row"><span class="label">Personal (acum)</span><span class="value">${window.fmtEUR(acum.coste_personal_eur)}</span></div>
+      <div class="detail-row"><span class="label">Energia (acum)</span><span class="value">${window.fmtEUR(acum.coste_energia_eur)}</span></div>
+      <div class="detail-row"><span class="label">Desgaste (acum)</span><span class="value">${window.fmtEUR(acum.coste_desgaste_eur)}</span></div>
+      <div class="detail-row"><span class="label">Activaciones (acum)</span><span class="value">${window.fmtEUR(acum.coste_activacion_eur)}</span></div>
+      <div class="detail-row"><span class="label">Prima respuesta (acum)</span><span class="value">${window.fmtEUR(acum.prima_respuesta_eur)}</span></div>
+    `;
   }
 
   function abrirDialogoAsignacion(unidad) {

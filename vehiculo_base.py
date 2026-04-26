@@ -7,12 +7,15 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+from collections import deque
+
 from config import (
     RANGO_COMBUSTIBLE_INICIAL, RANGO_KM_INICIAL, RANGO_TEMP_INICIAL, RANGO_ACEITE_INICIAL,
     RANGO_DESGASTE_FRENOS, RANGO_DESGASTE_NEUMATICOS, VELOCIDAD_PATRULLA,
     TASA_REABASTECIMIENTO, UMBRAL_COMBUSTIBLE, TEMP_AMBIENTE, TEMP_MAXIMA, VELOCIDAD_MAXIMA,
     DIST_MAX_RASTRO, obtener_tarifa
 )
+from costos import desglose_coste_minuto, prima_tiempo_respuesta, SLA_RESPUESTA_SEG
 from gps import SimuladorGPS
 from rutas import generar_ruta_patrulla
 
@@ -34,6 +37,9 @@ class VehiculoBase:
         self.coste_activacion = float(tarifa.get('coste_activacion', 10.0))
         self.dotacion = int(tarifa.get('dotacion', 2))
         self.velocidad_max_unidad = int(tarifa.get('velocidad_max', VELOCIDAD_MAXIMA))
+        self.distribucion_coste_min = dict(tarifa.get('distribucion') or {
+            'personal': 0.5, 'energia': 0.3, 'desgaste': 0.2,
+        })
 
         self._init_telemetria()
         self._init_dinamica()
@@ -83,14 +89,29 @@ class VehiculoBase:
         self.perfil_velocidad = None
 
     def _init_costes(self):
-
         self.coste_total_eur = 0.0
-
         self.coste_intervencion_eur = 0.0
-
         self.intervenciones_realizadas = 0
-
         self._segundos_facturados = 0.0
+
+        self.coste_personal_eur = 0.0
+        self.coste_energia_eur = 0.0
+        self.coste_desgaste_eur = 0.0
+        self.coste_tiempo_eur = 0.0
+        self.coste_activacion_aplicado_eur = 0.0
+        self.prima_respuesta_eur = 0.0
+
+        self.intervencion_actual_id = None
+        self.intervencion_inicio = None
+        self.intervencion_llegada = None
+        self.tiempo_respuesta_seg = None
+
+        self.historial_intervenciones = deque(maxlen=20)
+        self.coste_acumulado_personal_eur = 0.0
+        self.coste_acumulado_energia_eur = 0.0
+        self.coste_acumulado_desgaste_eur = 0.0
+        self.coste_acumulado_activacion_eur = 0.0
+        self.coste_acumulado_prima_eur = 0.0
 
     def _iniciar_ruta_patrulla(self):
 
@@ -129,11 +150,26 @@ class VehiculoBase:
         self.actualizar_logica_especializada(delta_time)
 
     def _acumular_costes(self, delta_time):
+        if not self._esta_en_intervencion():
+            return
 
-        if self._esta_en_intervencion():
-            self._segundos_facturados += delta_time
-            coste_tiempo = (self._segundos_facturados / 60.0) * self.coste_min
-            self.coste_intervencion_eur = self.coste_activacion + coste_tiempo
+        self._segundos_facturados += delta_time
+        minutos = self._segundos_facturados / 60.0
+
+        desglose = desglose_coste_minuto(self.TIPO, self.propulsion, minutos)
+        self.coste_tiempo_eur = round(desglose['total'], 4)
+        self.coste_personal_eur = round(desglose['personal'], 4)
+        self.coste_energia_eur = round(desglose['energia'], 4)
+        self.coste_desgaste_eur = round(desglose['desgaste'], 4)
+
+        self.prima_respuesta_eur = prima_tiempo_respuesta(self.tiempo_respuesta_seg)
+
+        self.coste_intervencion_eur = round(
+            self.coste_activacion_aplicado_eur
+            + self.coste_tiempo_eur
+            + self.prima_respuesta_eur,
+            4,
+        )
 
     def _esta_en_intervencion(self):
         activo = str(self.escenario_activo or '').lower()
@@ -143,11 +179,50 @@ class VehiculoBase:
         if self.coste_intervencion_eur > 0:
             self.coste_total_eur += self.coste_intervencion_eur
             self.intervenciones_realizadas += 1
+
+            self.coste_acumulado_personal_eur += self.coste_personal_eur
+            self.coste_acumulado_energia_eur += self.coste_energia_eur
+            self.coste_acumulado_desgaste_eur += self.coste_desgaste_eur
+            self.coste_acumulado_activacion_eur += self.coste_activacion_aplicado_eur
+            self.coste_acumulado_prima_eur += self.prima_respuesta_eur
+
+            try:
+                self.historial_intervenciones.append({
+                    'incident_id': self.intervencion_actual_id,
+                    'escenario': self.escenario_activo,
+                    'inicio': self.intervencion_inicio.isoformat() if self.intervencion_inicio else None,
+                    'llegada': self.intervencion_llegada.isoformat() if self.intervencion_llegada else None,
+                    'fin': datetime.now().isoformat(),
+                    'minutos_facturados': round(self._segundos_facturados / 60.0, 2),
+                    'tiempo_respuesta_seg': self.tiempo_respuesta_seg,
+                    'coste_total_eur': round(self.coste_intervencion_eur, 2),
+                    'coste_activacion_eur': round(self.coste_activacion_aplicado_eur, 2),
+                    'coste_personal_eur': round(self.coste_personal_eur, 2),
+                    'coste_energia_eur': round(self.coste_energia_eur, 2),
+                    'coste_desgaste_eur': round(self.coste_desgaste_eur, 2),
+                    'prima_respuesta_eur': round(self.prima_respuesta_eur, 2),
+                })
+            except Exception:
+                pass
+
         self.coste_intervencion_eur = 0.0
+        self.coste_tiempo_eur = 0.0
+        self.coste_personal_eur = 0.0
+        self.coste_energia_eur = 0.0
+        self.coste_desgaste_eur = 0.0
+        self.coste_activacion_aplicado_eur = 0.0
+        self.prima_respuesta_eur = 0.0
         self._segundos_facturados = 0.0
+        self.intervencion_actual_id = None
+        self.intervencion_inicio = None
+        self.intervencion_llegada = None
+        self.tiempo_respuesta_seg = None
 
     def obtener_tipo(self):
         return self.TIPO
+
+    def historial_costes(self) -> list:
+        return list(self.historial_intervenciones)
 
     def obtener_estado_especializado(self):
 
@@ -249,6 +324,12 @@ class VehiculoBase:
                 self.terminar_escenario()
 
     def _configurar_llegada_escena(self):
+        if self.intervencion_llegada is None:
+            self.intervencion_llegada = datetime.now()
+            if self.intervencion_inicio is not None:
+                delta = (self.intervencion_llegada - self.intervencion_inicio).total_seconds()
+                self.tiempo_respuesta_seg = max(0.0, float(delta))
+
         if not self.tiempo_restante_escena:
             if self.duracion_escenario != float('inf'):
                 self.tiempo_restante_escena = max(0, self.duracion_escenario)
@@ -418,10 +499,22 @@ class VehiculoBase:
             self.finalizar_intervencion()
 
         self._segundos_facturados = 0.0
-        self.coste_intervencion_eur = self.coste_activacion
+        self.coste_activacion_aplicado_eur = float(self.coste_activacion)
+        self.coste_intervencion_eur = self.coste_activacion_aplicado_eur
+        self.coste_tiempo_eur = 0.0
+        self.coste_personal_eur = 0.0
+        self.coste_energia_eur = 0.0
+        self.coste_desgaste_eur = 0.0
+        self.prima_respuesta_eur = 0.0
+
+        ahora = datetime.now()
+        self.intervencion_inicio = ahora
+        self.intervencion_llegada = None
+        self.tiempo_respuesta_seg = None
+        self.intervencion_actual_id = kwargs.get('incident_id')
 
         self.escenario_activo = nombre_personalizado or tipo_escenario
-        self.tiempo_escenario_inicio = datetime.now()
+        self.tiempo_escenario_inicio = ahora
         self.duracion_escenario = duracion_minutos * 60
         self.tiempo_escenario_sim = 0
         self.distancia_recorrida = 0
@@ -543,15 +636,65 @@ class VehiculoBase:
         self.en_escena = False
 
     def _payload_costes(self):
+        en_intervencion = self._esta_en_intervencion()
+        minutos = round(self._segundos_facturados / 60.0, 2) if en_intervencion else 0.0
+
+        coste_total_global = (
+            self.coste_total_eur + (self.coste_intervencion_eur if en_intervencion else 0.0)
+        )
+
+        coste_personal_acum = self.coste_acumulado_personal_eur + (
+            self.coste_personal_eur if en_intervencion else 0.0)
+        coste_energia_acum = self.coste_acumulado_energia_eur + (
+            self.coste_energia_eur if en_intervencion else 0.0)
+        coste_desgaste_acum = self.coste_acumulado_desgaste_eur + (
+            self.coste_desgaste_eur if en_intervencion else 0.0)
+        coste_activacion_acum = self.coste_acumulado_activacion_eur + (
+            self.coste_activacion_aplicado_eur if en_intervencion else 0.0)
+        coste_prima_acum = self.coste_acumulado_prima_eur + (
+            self.prima_respuesta_eur if en_intervencion else 0.0)
+
         return {
             'tipo': self.TIPO,
             'propulsion': self.propulsion,
             'dotacion': self.dotacion,
             'coste_min_eur': round(self.coste_min, 2),
             'coste_activacion_eur': round(self.coste_activacion, 2),
-            'coste_intervencion_eur': round(self.coste_intervencion_eur, 2),
-            'coste_total_eur': round(self.coste_total_eur + self.coste_intervencion_eur, 2),
-            'intervenciones_realizadas': self.intervenciones_realizadas
+            'distribucion_minuto': self.distribucion_coste_min,
+
+            'coste_intervencion_eur': round(self.coste_intervencion_eur, 2)
+                if en_intervencion else 0.0,
+            'coste_total_eur': round(coste_total_global, 2),
+            'intervenciones_realizadas': self.intervenciones_realizadas,
+
+            'desglose_actual': {
+                'minutos_facturados': minutos,
+                'coste_activacion_eur': round(self.coste_activacion_aplicado_eur, 2)
+                    if en_intervencion else 0.0,
+                'coste_tiempo_eur': round(self.coste_tiempo_eur, 2)
+                    if en_intervencion else 0.0,
+                'coste_personal_eur': round(self.coste_personal_eur, 2)
+                    if en_intervencion else 0.0,
+                'coste_energia_eur': round(self.coste_energia_eur, 2)
+                    if en_intervencion else 0.0,
+                'coste_desgaste_eur': round(self.coste_desgaste_eur, 2)
+                    if en_intervencion else 0.0,
+                'prima_respuesta_eur': round(self.prima_respuesta_eur, 2)
+                    if en_intervencion else 0.0,
+                'tiempo_respuesta_seg': (int(self.tiempo_respuesta_seg)
+                    if self.tiempo_respuesta_seg is not None else None),
+                'sla_respuesta_seg': SLA_RESPUESTA_SEG,
+                'sla_cumplido': (self.tiempo_respuesta_seg is None
+                    or self.tiempo_respuesta_seg <= SLA_RESPUESTA_SEG),
+            },
+
+            'desglose_acumulado': {
+                'coste_personal_eur': round(coste_personal_acum, 2),
+                'coste_energia_eur': round(coste_energia_acum, 2),
+                'coste_desgaste_eur': round(coste_desgaste_acum, 2),
+                'coste_activacion_eur': round(coste_activacion_acum, 2),
+                'prima_respuesta_eur': round(coste_prima_acum, 2),
+            },
         }
 
     def obtener_estado(self):

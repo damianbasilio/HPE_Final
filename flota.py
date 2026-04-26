@@ -10,6 +10,14 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from config import INTERVALO_ACTUALIZACION
+from costos import (
+    SLA_RESPUESTA_SEG,
+    clasificar_coste,
+    desglose_coste_minuto,
+    obtener_tarifa,
+    prima_tiempo_respuesta,
+    tarifas_completas,
+)
 from rutas import generar_ruta, obtener_distancia_total_ruta, snap_a_carretera
 from vehiculo_factory import crear_vehiculo
 from vehiculo_base import VehiculoBase
@@ -228,6 +236,8 @@ class FleetManager:
 
         self.asignaciones: Dict[str, str] = {}
         self._traza: deque = deque(maxlen=200)
+
+        self.historial_costes: deque = deque(maxlen=200)
         self._crear_flotas_base(plantilla or PLANTILLA_DEFECTO)
 
     def _registrar_traza(self, evento_id: str, decision: str, motivo: str = "",
@@ -337,12 +347,14 @@ class FleetManager:
         elif veh.en_escena:
             inc['incident_status'] = 'on_scene'
             inc['status'] = 'on_scene'
+            if inc.get('tiempo_respuesta_seg') is None and veh.tiempo_respuesta_seg is not None:
+                inc['tiempo_respuesta_seg'] = int(veh.tiempo_respuesta_seg)
+                inc['sla_cumplido'] = veh.tiempo_respuesta_seg <= SLA_RESPUESTA_SEG
         elif activo == veh.ESTADO_BASE.lower():
-
             inc['incident_status'] = 'resolved'
             inc['status'] = 'resolved'
             inc['resolved_at'] = datetime.now().isoformat()
-            inc['coste_total_eur'] = round(veh.coste_total_eur, 2)
+            self._cerrar_costes_incidente(veh, inc)
             self.asignaciones.pop(veh.id, None)
 
     def manejar_evento(self, evento: dict) -> Optional[str]:
@@ -575,7 +587,8 @@ class FleetManager:
             intensidad=intensidad,
             nombre_personalizado=nombre_escenario,
             modificadores=modificadores,
-            ruta=ruta if ruta and len(ruta) >= 2 else None
+            ruta=ruta if ruta and len(ruta) >= 2 else None,
+            incident_id=incidente.get('incident_id'),
         )
 
         incidente['eta_seg'] = tiempo_viaje_s
@@ -689,11 +702,217 @@ class FleetManager:
                 inc['status'] = 'resolved'
                 inc['incident_status'] = 'resolved'
                 inc['resolved_at'] = datetime.now().isoformat()
-                inc['coste_total_eur'] = round(
-                    veh.coste_total_eur + veh.coste_intervencion_eur, 2
-                )
+                self._cerrar_costes_incidente(veh, inc)
             veh.terminar_escenario()
             return True
+
+    def _cerrar_costes_incidente(self, veh: VehiculoBase, inc: dict) -> None:
+        """Persiste el desglose de costes en el incidente y en el historial."""
+        try:
+            minutos = round(veh._segundos_facturados / 60.0, 2)
+            tiempo_resp = veh.tiempo_respuesta_seg
+            registro_inc = {
+                'incident_id': inc.get('incident_id'),
+                'incident_type': inc.get('incident_type'),
+                'severity': inc.get('severity'),
+                'unidad_id': veh.id,
+                'unidad_nombre': veh.metadatos.get('nombre', veh.id),
+                'tipo_unidad': veh.TIPO,
+                'propulsion': veh.propulsion,
+                'started_at': inc.get('started_at'),
+                'resolved_at': inc.get('resolved_at'),
+                'tiempo_respuesta_seg': int(tiempo_resp) if tiempo_resp is not None else None,
+                'sla_cumplido': (tiempo_resp is None or tiempo_resp <= SLA_RESPUESTA_SEG),
+                'minutos_facturados': minutos,
+                'coste_activacion_eur': round(veh.coste_activacion_aplicado_eur, 2),
+                'coste_personal_eur': round(veh.coste_personal_eur, 2),
+                'coste_energia_eur': round(veh.coste_energia_eur, 2),
+                'coste_desgaste_eur': round(veh.coste_desgaste_eur, 2),
+                'coste_tiempo_eur': round(veh.coste_tiempo_eur, 2),
+                'prima_respuesta_eur': round(veh.prima_respuesta_eur, 2),
+                'coste_total_eur': round(veh.coste_intervencion_eur, 2),
+                'clase_coste': clasificar_coste(veh.coste_intervencion_eur),
+            }
+
+            inc['tiempo_respuesta_seg'] = registro_inc['tiempo_respuesta_seg']
+            inc['sla_cumplido'] = registro_inc['sla_cumplido']
+            inc['coste_total_eur'] = registro_inc['coste_total_eur']
+            inc['coste_breakdown'] = {
+                'coste_activacion_eur': registro_inc['coste_activacion_eur'],
+                'coste_personal_eur': registro_inc['coste_personal_eur'],
+                'coste_energia_eur': registro_inc['coste_energia_eur'],
+                'coste_desgaste_eur': registro_inc['coste_desgaste_eur'],
+                'coste_tiempo_eur': registro_inc['coste_tiempo_eur'],
+                'prima_respuesta_eur': registro_inc['prima_respuesta_eur'],
+            }
+
+            self.historial_costes.append(registro_inc)
+        except Exception as exc:
+            logger.warning("[Flota] No se pudo cerrar desglose de costes: %s", exc)
+
+    def resumen_costes(self) -> dict:
+        """Vista agregada para el panel de analisis de costes."""
+        with self._lock:
+            vehiculos = list(self.vehiculos.values())
+            incidentes = list(self.incidentes.values())
+            historico = list(self.historial_costes)
+
+        en_curso = 0
+        coste_actual = 0.0
+        coste_total_acum = 0.0
+        coste_personal = 0.0
+        coste_energia = 0.0
+        coste_desgaste = 0.0
+        coste_activacion = 0.0
+        coste_prima = 0.0
+        intervenciones = 0
+
+        por_tipo: Dict[str, dict] = {}
+        por_propulsion: Dict[str, dict] = {}
+
+        for veh in vehiculos:
+            en_intervencion = veh._esta_en_intervencion()
+            if en_intervencion:
+                en_curso += 1
+                coste_actual += float(veh.coste_intervencion_eur or 0.0)
+
+            coste_total_acum += float(veh.coste_total_eur or 0.0) + (
+                float(veh.coste_intervencion_eur or 0.0) if en_intervencion else 0.0)
+            coste_personal += float(veh.coste_acumulado_personal_eur or 0.0) + (
+                float(veh.coste_personal_eur or 0.0) if en_intervencion else 0.0)
+            coste_energia += float(veh.coste_acumulado_energia_eur or 0.0) + (
+                float(veh.coste_energia_eur or 0.0) if en_intervencion else 0.0)
+            coste_desgaste += float(veh.coste_acumulado_desgaste_eur or 0.0) + (
+                float(veh.coste_desgaste_eur or 0.0) if en_intervencion else 0.0)
+            coste_activacion += float(veh.coste_acumulado_activacion_eur or 0.0) + (
+                float(veh.coste_activacion_aplicado_eur or 0.0) if en_intervencion else 0.0)
+            coste_prima += float(veh.coste_acumulado_prima_eur or 0.0) + (
+                float(veh.prima_respuesta_eur or 0.0) if en_intervencion else 0.0)
+            intervenciones += int(veh.intervenciones_realizadas or 0)
+
+            agg_t = por_tipo.setdefault(veh.TIPO, {
+                'tipo': veh.TIPO, 'unidades': 0, 'intervenciones': 0,
+                'coste_total_eur': 0.0, 'coste_actual_eur': 0.0, 'en_curso': 0,
+            })
+            agg_t['unidades'] += 1
+            agg_t['intervenciones'] += int(veh.intervenciones_realizadas or 0)
+            agg_t['coste_total_eur'] += float(veh.coste_total_eur or 0.0) + (
+                float(veh.coste_intervencion_eur or 0.0) if en_intervencion else 0.0)
+            if en_intervencion:
+                agg_t['coste_actual_eur'] += float(veh.coste_intervencion_eur or 0.0)
+                agg_t['en_curso'] += 1
+
+            agg_p = por_propulsion.setdefault(veh.propulsion, {
+                'propulsion': veh.propulsion, 'unidades': 0, 'coste_total_eur': 0.0,
+            })
+            agg_p['unidades'] += 1
+            agg_p['coste_total_eur'] += float(veh.coste_total_eur or 0.0) + (
+                float(veh.coste_intervencion_eur or 0.0) if en_intervencion else 0.0)
+
+        cumplidos = [h for h in historico if h.get('sla_cumplido')]
+        sla_pct = (100.0 * len(cumplidos) / len(historico)) if historico else None
+
+        tiempos = [h.get('tiempo_respuesta_seg') for h in historico
+                   if h.get('tiempo_respuesta_seg') is not None]
+        tiempo_resp_medio = (sum(tiempos) / len(tiempos)) if tiempos else None
+
+        coste_medio = (coste_total_acum / intervenciones) if intervenciones else 0.0
+
+        incidentes_activos = [i for i in incidentes
+                              if i.get('status') in ('assigned', 'en_route', 'on_scene', 'queued')]
+
+        return {
+            "generado_en": datetime.now().isoformat(),
+            "currency": "EUR",
+            "totales": {
+                "coste_total_eur": round(coste_total_acum, 2),
+                "coste_intervenciones_en_curso_eur": round(coste_actual, 2),
+                "coste_medio_intervencion_eur": round(coste_medio, 2),
+                "intervenciones_realizadas": intervenciones,
+                "intervenciones_en_curso": en_curso,
+                "incidentes_activos": len(incidentes_activos),
+                "clase": clasificar_coste(coste_total_acum),
+            },
+            "desglose_acumulado": {
+                "coste_personal_eur": round(coste_personal, 2),
+                "coste_energia_eur": round(coste_energia, 2),
+                "coste_desgaste_eur": round(coste_desgaste, 2),
+                "coste_activacion_eur": round(coste_activacion, 2),
+                "prima_respuesta_eur": round(coste_prima, 2),
+            },
+            "por_tipo": [
+                {
+                    **v,
+                    "coste_total_eur": round(v["coste_total_eur"], 2),
+                    "coste_actual_eur": round(v["coste_actual_eur"], 2),
+                }
+                for v in sorted(por_tipo.values(),
+                                key=lambda x: x["coste_total_eur"], reverse=True)
+            ],
+            "por_propulsion": [
+                {**v, "coste_total_eur": round(v["coste_total_eur"], 2)}
+                for v in sorted(por_propulsion.values(),
+                                key=lambda x: x["coste_total_eur"], reverse=True)
+            ],
+            "sla_respuesta": {
+                "sla_seg": SLA_RESPUESTA_SEG,
+                "porcentaje_cumplido": (round(sla_pct, 1) if sla_pct is not None else None),
+                "tiempo_respuesta_medio_seg": (round(tiempo_resp_medio, 1)
+                    if tiempo_resp_medio is not None else None),
+                "intervenciones_evaluadas": len(historico),
+            },
+            "ultimas_intervenciones": list(reversed(historico[-15:])),
+            "tarifas": tarifas_completas(),
+        }
+
+    def listado_intervenciones_costes(self, limite: int = 50) -> list:
+        with self._lock:
+            base = list(self.historial_costes)
+        return list(reversed(base))[:max(0, int(limite))]
+
+    def coste_vehiculo(self, vehiculo_id: str) -> Optional[dict]:
+        with self._lock:
+            veh = self.vehiculos.get(vehiculo_id)
+            if not veh:
+                return None
+            estado = veh.obtener_estado()
+            historial = veh.historial_costes()
+
+        return {
+            "vehicle_id": veh.id,
+            "tipo": veh.TIPO,
+            "propulsion": veh.propulsion,
+            "nombre": veh.metadatos.get('nombre', veh.id),
+            "tarifa": obtener_tarifa(veh.TIPO, veh.propulsion),
+            "costes": estado.get('costes', {}),
+            "historial": list(reversed(historial)),
+        }
+
+    def estimar_coste_intervencion(self, tipo: str, propulsion: str,
+                                   minutos: float,
+                                   tiempo_respuesta_seg: Optional[float] = None) -> dict:
+        """Util para previsualizar el coste teorico (antes de despachar)."""
+        tarifa = obtener_tarifa(tipo, propulsion)
+        if not tarifa:
+            return {}
+        minutos = max(0.0, float(minutos or 0.0))
+        desglose = desglose_coste_minuto(tipo, propulsion, minutos)
+        prima = prima_tiempo_respuesta(tiempo_respuesta_seg) if tiempo_respuesta_seg is not None else 0.0
+        total = float(tarifa['coste_activacion']) + desglose['total'] + prima
+        return {
+            "tipo": tipo,
+            "propulsion": propulsion,
+            "tarifa": tarifa,
+            "minutos": round(minutos, 2),
+            "coste_activacion_eur": round(float(tarifa['coste_activacion']), 2),
+            "coste_personal_eur": round(desglose['personal'], 2),
+            "coste_energia_eur": round(desglose['energia'], 2),
+            "coste_desgaste_eur": round(desglose['desgaste'], 2),
+            "coste_tiempo_eur": round(desglose['total'], 2),
+            "prima_respuesta_eur": round(prima, 2),
+            "coste_total_eur": round(total, 2),
+            "clase": clasificar_coste(total),
+        }
 
     def _desplegar_scout_si_disponible(self, incidente_principal: dict) -> Optional[str]:
         with self._lock:

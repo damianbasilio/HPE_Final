@@ -246,6 +246,153 @@ function fmtEUR(v) {
   return Number(v).toFixed(2) + ' EUR';
 }
 
+function fmtSeconds(seg) {
+  if (seg == null || isNaN(seg)) return '--';
+  const s = Math.max(0, Math.round(Number(seg)));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return r ? `${m}m ${r}s` : `${m}m`;
+}
+
+const TIPO_LABELS = {
+  policia: 'Policia',
+  ambulancia: 'Ambulancia',
+  bomberos: 'Bomberos',
+  proteccion_civil: 'Proteccion Civil',
+  dron: 'Dron',
+};
+
+const ENERGIA_LABELS = {
+  combustion: 'Combustion',
+  electrico: 'Electrico',
+  unico: 'Unico',
+};
+
+function etiquetaTipo(tipo) {
+  return TIPO_LABELS[tipo] || tipo;
+}
+
+function etiquetaEnergia(en) {
+  return ENERGIA_LABELS[en] || en;
+}
+
+function renderResumenCostes(resumen) {
+  if (!resumen) return '';
+  const t = resumen.totales || {};
+  const d = resumen.desglose_acumulado || {};
+  const sla = resumen.sla_respuesta || {};
+  const tipos = resumen.por_tipo || [];
+  const ultimas = resumen.ultimas_intervenciones || [];
+  const cur = (resumen.currency || 'EUR');
+
+  const totalAcum = Number(t.coste_total_eur || 0);
+  const partes = [
+    { k: 'Personal', v: Number(d.coste_personal_eur || 0), color: '#6366f1' },
+    { k: 'Energia', v: Number(d.coste_energia_eur || 0), color: '#22d3ee' },
+    { k: 'Desgaste', v: Number(d.coste_desgaste_eur || 0), color: '#f97316' },
+    { k: 'Activacion', v: Number(d.coste_activacion_eur || 0), color: '#a855f7' },
+    { k: 'Prima respuesta', v: Number(d.prima_respuesta_eur || 0), color: '#ef4444' },
+  ];
+  const sumaPartes = partes.reduce((a, p) => a + p.v, 0) || 1;
+
+  const desgloseHtml = partes.map((p) => {
+    const pct = (100 * p.v) / sumaPartes;
+    return `<div class="cost-bar-row" title="${p.k}: ${p.v.toFixed(2)} ${cur} (${pct.toFixed(1)}%)">
+      <span class="cost-bar-label">${p.k}</span>
+      <span class="cost-bar-track"><span class="cost-bar-fill" style="width:${pct.toFixed(1)}%;background:${p.color}"></span></span>
+      <span class="cost-bar-value">${p.v.toFixed(2)}</span>
+    </div>`;
+  }).join('');
+
+  const tiposHtml = tipos.slice(0, 6).map((row) => `
+    <div class="cost-type-row">
+      <span class="cost-type-name">${etiquetaTipo(row.tipo)}</span>
+      <span class="cost-type-units">${row.unidades || 0} u (${row.intervenciones || 0} int.)</span>
+      <span class="cost-type-amount">${Number(row.coste_total_eur || 0).toFixed(2)} ${cur}</span>
+    </div>
+  `).join('') || '<p class="muted">Sin datos por tipo todavia.</p>';
+
+  const ultimasHtml = ultimas.slice(0, 6).map((h) => {
+    const sla = h.sla_cumplido ? '<span class="cost-sla ok">SLA</span>' : '<span class="cost-sla bad">SLA+</span>';
+    const tr = h.tiempo_respuesta_seg != null ? fmtSeconds(h.tiempo_respuesta_seg) : '--';
+    return `<div class="cost-history-row">
+      <div class="row-top">
+        <strong>${h.incident_id || '--'}</strong>
+        <span class="badge">${h.severity || ''}</span>
+        ${sla}
+      </div>
+      <div class="row-meta">
+        ${etiquetaTipo(h.tipo_unidad)}/${etiquetaEnergia(h.propulsion)} ·
+        ${Number(h.coste_total_eur || 0).toFixed(2)} ${cur} ·
+        respuesta ${tr}
+      </div>
+    </div>`;
+  }).join('') || '<p class="muted">Sin intervenciones cerradas todavia.</p>';
+
+  const slaPct = sla.porcentaje_cumplido != null ? `${sla.porcentaje_cumplido}%` : '--';
+  const slaTr = sla.tiempo_respuesta_medio_seg != null ? fmtSeconds(sla.tiempo_respuesta_medio_seg) : '--';
+
+  return `
+    <div class="cost-summary">
+      <div class="cost-headline">
+        <div>
+          <span class="cost-label">Coste total acumulado</span>
+          <span class="cost-amount">${totalAcum.toFixed(2)} ${cur}</span>
+          <span class="cost-class clase-${t.clase || 'bajo'}">${(t.clase || '').toUpperCase()}</span>
+        </div>
+        <div>
+          <span class="cost-label">Intervenciones</span>
+          <span class="cost-amount-mini">${t.intervenciones_realizadas || 0} cerradas / ${t.intervenciones_en_curso || 0} en curso</span>
+        </div>
+        <div>
+          <span class="cost-label">Coste medio / intervencion</span>
+          <span class="cost-amount-mini">${Number(t.coste_medio_intervencion_eur || 0).toFixed(2)} ${cur}</span>
+        </div>
+        <div>
+          <span class="cost-label">Cumplimiento SLA</span>
+          <span class="cost-amount-mini">${slaPct} (medio ${slaTr})</span>
+        </div>
+      </div>
+
+      <h4>Desglose acumulado</h4>
+      <div class="cost-breakdown">${desgloseHtml}</div>
+
+      <h4>Coste por tipo de unidad</h4>
+      <div class="cost-types">${tiposHtml}</div>
+
+      <h4>Ultimas intervenciones</h4>
+      <div class="cost-history">${ultimasHtml}</div>
+
+      <h4>Tarifas vigentes</h4>
+      <div class="cost-rates" id="cost-rates-list">${renderListadoTarifas(resumen.tarifas, cur)}</div>
+    </div>
+  `;
+}
+
+function renderListadoTarifas(tarifas, cur = 'EUR') {
+  if (!tarifas || !tarifas.length) return '<p class="muted">Sin tarifas disponibles.</p>';
+  return `
+    <table class="cost-rates-table">
+      <thead>
+        <tr><th>Recurso</th><th>Tipo</th><th>Dotacion</th><th>${cur}/min</th><th>Activacion</th><th>Estado</th></tr>
+      </thead>
+      <tbody>
+        ${tarifas.map((tf) => `
+          <tr class="${tf.bloqueada ? 'tarifa-bloqueada' : 'tarifa-personalizada'}">
+            <td>${etiquetaTipo(tf.tipo)}</td>
+            <td>${etiquetaEnergia(tf.energia)}</td>
+            <td>${tf.dotacion ?? '--'}</td>
+            <td>${Number(tf.coste_min || 0).toFixed(2)}</td>
+            <td>${Number(tf.coste_activacion || 0).toFixed(2)}</td>
+            <td>${tf.bloqueada ? 'bloqueada' : 'personalizada'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
 function describirEspecializado(unidad) {
   const e = unidad.especializado || {};
   switch (unidad.tipo) {
@@ -310,4 +457,9 @@ window.TIPO_META = TIPO_META;
 window.fmtNum = fmtNum;
 window.fmtETA = fmtETA;
 window.fmtEUR = fmtEUR;
+window.fmtSeconds = fmtSeconds;
 window.describirEspecializado = describirEspecializado;
+window.renderResumenCostes = renderResumenCostes;
+window.renderListadoTarifas = renderListadoTarifas;
+window.etiquetaTipo = etiquetaTipo;
+window.etiquetaEnergia = etiquetaEnergia;

@@ -71,7 +71,6 @@ def registrar_manejadores(fleet):
             "usuario": usuario,
             "vehiculos": fleet.estado_resumen(),
             "incidentes": fleet.listado_incidentes(),
-            "costes": fleet.resumen_costes(),
             "timestamp": datetime.now().isoformat()
         })
 
@@ -201,7 +200,6 @@ def bucle_difusion(fleet):
             payload = {
                 "vehiculos": fleet.estado_broadcast(),
                 "incidentes": fleet.listado_incidentes(),
-                "costes": fleet.resumen_costes(),
                 "timestamp": datetime.now().isoformat()
             }
             socketio.emit('actualizacion_flotas', payload, room=SALA_TODOS)

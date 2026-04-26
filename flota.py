@@ -598,6 +598,12 @@ class FleetManager:
         incidente['incident_status'] = 'en_route'
         incidente['status'] = 'en_route'
         incidente['factor_entorno'] = round(factor, 2)
+        incidente['tarifa'] = {
+            'coste_min_eur': round(float(unidad.coste_min), 2),
+            'coste_activacion_eur': round(float(unidad.coste_activacion), 2),
+            'dotacion': int(unidad.dotacion),
+            'propulsion': unidad.propulsion,
+        }
 
         self.incidentes[incidente['incident_id']] = incidente
         self.asignaciones[unidad.id] = incidente['incident_id']
@@ -606,6 +612,11 @@ class FleetManager:
             "[Flota] %s/%s -> %s ETA=%ss dist=%.2fkm factor=%.2f",
             unidad.TIPO, unidad.id[:8], incidente['incident_id'],
             tiempo_viaje_s, distancia_km, factor
+        )
+        logger.info(
+            "[Coste] Activacion %s: tarifa %.2f EUR/min + %.2f EUR activacion (dotacion %d, %s)",
+            incidente['incident_id'], unidad.coste_min, unidad.coste_activacion,
+            unidad.dotacion, unidad.propulsion,
         )
         return unidad.id
 
@@ -747,6 +758,17 @@ class FleetManager:
             }
 
             self.historial_costes.append(registro_inc)
+            logger.info(
+                "[Coste] Cierre %s (%s/%s): total=%.2f EUR (act=%.2f + tiempo=%.2f + prima=%.2f)"
+                " · respuesta=%s s · SLA=%s",
+                registro_inc['incident_id'], registro_inc['tipo_unidad'], registro_inc['propulsion'],
+                registro_inc['coste_total_eur'],
+                registro_inc['coste_activacion_eur'],
+                registro_inc['coste_tiempo_eur'],
+                registro_inc['prima_respuesta_eur'],
+                registro_inc['tiempo_respuesta_seg'],
+                'OK' if registro_inc['sla_cumplido'] else 'SUPERADO',
+            )
         except Exception as exc:
             logger.warning("[Flota] No se pudo cerrar desglose de costes: %s", exc)
 

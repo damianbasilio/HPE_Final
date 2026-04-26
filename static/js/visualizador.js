@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     socket = { on: () => {}, emit: () => {} };
   }
 
-  let estadoActual = { vehiculos: [], incidentes: [], costes: null };
+  let estadoActual = { vehiculos: [], incidentes: [] };
   let simActiva = null;
   let pollSimTimer = null;
   let datosRecibidos = false;
@@ -45,25 +45,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function cargarDatosRest() {
     try {
-      const [resV, resI, resC] = await Promise.all([
+      const [resV, resI] = await Promise.all([
         fetch('/_internal/vehicles'),
         fetch('/_internal/incidents'),
-        fetch('/costs/summary'),
       ]);
       if (!resV.ok || !resI.ok) return;
       const dV = await resV.json();
       const dI = await resI.json();
-      const dC = resC.ok ? await resC.json() : null;
       estadoActual = {
         vehiculos: Array.isArray(dV) ? dV : (dV.vehicles || dV.vehiculos || []),
         incidentes: Array.isArray(dI) ? dI : (dI.incidents || dI.incidentes || []),
-        costes: dC,
       };
       panel.actualizarFlota(estadoActual);
       renderListaUnidades();
       renderListaIncidentes();
       renderResumen();
-      renderCostes();
+      if (panel.seleccionado) renderDetalle(panel.seleccionado);
     } catch (err) {
       console.warn('[visualizador] cargarDatosRest fallo:', err);
     }
@@ -74,13 +71,11 @@ document.addEventListener('DOMContentLoaded', () => {
     estadoActual = {
       vehiculos: data.vehiculos || [],
       incidentes: data.incidentes || [],
-      costes: data.costes || null,
     };
     panel.actualizarFlota(estadoActual);
     renderListaUnidades();
     renderListaIncidentes();
     renderResumen();
-    renderCostes();
   });
 
   socket.on('actualizacion_flotas', (data) => {
@@ -88,13 +83,11 @@ document.addEventListener('DOMContentLoaded', () => {
     estadoActual = {
       vehiculos: data.vehiculos || [],
       incidentes: data.incidentes || [],
-      costes: data.costes || null,
     };
     panel.actualizarFlota(estadoActual);
     renderListaUnidades();
     renderListaIncidentes();
     renderResumen();
-    renderCostes();
     if (panel.seleccionado) renderDetalle(panel.seleccionado);
   });
 
@@ -116,23 +109,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const v = estadoActual.vehiculos;
     const total = v.length;
     const activos = v.filter((u) => u.escenario && u.escenario.en_progreso).length;
-    const totales = (estadoActual.costes && estadoActual.costes.totales) || {};
-    const coste = totales.coste_total_eur != null
-      ? Number(totales.coste_total_eur)
-      : v.reduce((acc, u) => acc + ((u.costes && u.costes.coste_total_eur) || 0), 0);
     setText('flota-total', total);
     setText('flota-activos', activos);
-    setText('flota-coste', coste.toFixed(2));
-  }
-
-  function renderCostes() {
-    const cont = document.getElementById('panel-costes');
-    if (!cont) return;
-    if (!estadoActual.costes) {
-      cont.innerHTML = '<p class="muted">Calculando coste operativo...</p>';
-      return;
-    }
-    cont.innerHTML = window.renderResumenCostes(estadoActual.costes);
   }
 
   function renderListaUnidades() {
@@ -222,32 +200,11 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="detail-row"><span class="label">Temperatura</span><span class="value">${window.fmtNum(u.temperatura_motor, 0)} C</span></div>
       <div class="detail-row"><span class="label">Km totales</span><span class="value">${window.fmtNum(u.km_totales, 0)}</span></div>
       <div class="detail-row"><span class="label">Factor entorno</span><span class="value">x${window.fmtNum(u.factor_entorno || 1, 2)}</span></div>
-      <h4>Costes</h4>
-      ${renderCostesUnidad(u)}
+      <h4>Coste operativo de esta unidad</h4>
+      ${window.renderCosteUnidad(u)}
       <h4>Especializado</h4>
       ${esp}
       ${incHtml}
-    `;
-  }
-
-  function renderCostesUnidad(u) {
-    const c = u.costes || {};
-    const actual = c.desglose_actual || {};
-    const acum = c.desglose_acumulado || {};
-    const filaTrSeg = actual.tiempo_respuesta_seg != null
-      ? `${window.fmtSeconds(actual.tiempo_respuesta_seg)} ${actual.sla_cumplido ? '(SLA OK)' : '(SLA superado)'}`
-      : '--';
-    return `
-      <div class="detail-row"><span class="label">Tarifa</span><span class="value">${Number(c.coste_min_eur || 0).toFixed(2)} EUR/min · ${Number(c.coste_activacion_eur || 0).toFixed(2)} EUR activacion</span></div>
-      <div class="detail-row"><span class="label">Dotacion</span><span class="value">${c.dotacion ?? '--'} personas</span></div>
-      <div class="detail-row"><span class="label">Coste actual</span><span class="value">${window.fmtEUR(c.coste_intervencion_eur)}</span></div>
-      <div class="detail-row"><span class="label">Coste total acumulado</span><span class="value">${window.fmtEUR(c.coste_total_eur)}</span></div>
-      <div class="detail-row"><span class="label">Tiempo respuesta</span><span class="value">${filaTrSeg}</span></div>
-      <div class="detail-row"><span class="label">Personal (acum)</span><span class="value">${window.fmtEUR(acum.coste_personal_eur)}</span></div>
-      <div class="detail-row"><span class="label">Energia (acum)</span><span class="value">${window.fmtEUR(acum.coste_energia_eur)}</span></div>
-      <div class="detail-row"><span class="label">Desgaste (acum)</span><span class="value">${window.fmtEUR(acum.coste_desgaste_eur)}</span></div>
-      <div class="detail-row"><span class="label">Activaciones (acum)</span><span class="value">${window.fmtEUR(acum.coste_activacion_eur)}</span></div>
-      <div class="detail-row"><span class="label">Prima respuesta (acum)</span><span class="value">${window.fmtEUR(acum.prima_respuesta_eur)}</span></div>
     `;
   }
 

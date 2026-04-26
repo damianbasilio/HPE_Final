@@ -446,6 +446,46 @@ class FleetManager:
             ev_id, tipo_evento, sev, lat, lon, resolved_at,
         )
 
+        if resolved_at:
+            with self._lock:
+                existente = self.incidentes.get(ev_id)
+                unidad_id = None
+                if existente:
+                    for vid, inc_id in self.asignaciones.items():
+                        if inc_id == ev_id:
+                            unidad_id = vid
+                            break
+
+                if existente and existente.get('status') != 'resolved':
+                    existente['incident_status'] = 'resolved'
+                    existente['status'] = 'resolved'
+                    existente['resolved_at'] = resolved_at
+
+                    veh = self.vehiculos.get(unidad_id) if unidad_id else None
+                    if veh:
+                        self._cerrar_costes_incidente(veh, existente)
+                        self.asignaciones.pop(unidad_id, None)
+                        try:
+                            veh.terminar_escenario()
+                        except Exception as exc:
+                            logger.warning(
+                                "[Flota] No se pudo terminar escenario de %s al cerrar %s: %s",
+                                unidad_id, ev_id, exc,
+                            )
+
+                    logger.info(
+                        "[Flota] Evento %s marcado como resuelto en origen; incidente local cerrado",
+                        ev_id,
+                    )
+                    self._registrar_traza(
+                        ev_id,
+                        'cerrado_por_origen',
+                        f"resolved_at={resolved_at}",
+                        tipo=tipo_evento,
+                        payload=evento,
+                    )
+                    return ev_id
+
         if lat is None or lon is None:
             logger.warning(
                 "[Flota] Evento %s sin coordenadas validas, descartado. payload=%r",
@@ -457,11 +497,14 @@ class FleetManager:
             return None
 
         if resolved_at:
-            logger.info("[Flota] Evento %s ya resuelto en origen, no se asigna unidad", ev_id)
+            logger.info(
+                "[Flota] Evento %s ya resuelto en origen, sin incidente activo local",
+                ev_id,
+            )
             self._registrar_traza(ev_id, 'descartado',
                                   f'resolved_at={resolved_at}',
                                   tipo=tipo_evento, payload=evento)
-            return None
+            return ev_id
 
         evento_norm = dict(evento)
         evento_norm['id'] = ev_id

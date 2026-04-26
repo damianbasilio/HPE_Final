@@ -22,7 +22,6 @@ momento, modificar la velocidad, pausar/reanudar y detener la simulacion.
 from __future__ import annotations
 
 import heapq
-import json
 import logging
 import threading
 import time
@@ -182,6 +181,10 @@ class SimulacionTiempoReal(_SimulacionBase):
             eventos_recientes = list(self._bus.eventos_recientes(eventos_limit))
         except Exception:
             eventos_recientes = []
+        try:
+            lecturas_clima = list(getattr(self._bus, '_weather_cache', []) or [])[-eventos_limit:]
+        except Exception:
+            lecturas_clima = []
         return {
             **self.estado_dict(),
             "vehiculos": snap["vehiculos"],
@@ -189,6 +192,7 @@ class SimulacionTiempoReal(_SimulacionBase):
             "asignaciones": snap["asignaciones"],
             "decisiones": snap["decisiones"],
             "eventos_recientes": eventos_recientes,
+            "lecturas_clima_recientes": lecturas_clima,
         }
 
 
@@ -222,6 +226,7 @@ class SimulacionReplay(_SimulacionBase):
 
         self._weather_by_station: Dict[str, dict] = {}
         self._weather_cache: deque = deque(maxlen=200)
+        self._events_cache: deque = deque(maxlen=200)
         self._factor_clima = 1.0
         self._clima_actual: Optional[dict] = None
 
@@ -304,7 +309,8 @@ class SimulacionReplay(_SimulacionBase):
             "incidentes": snap["incidentes"],
             "asignaciones": snap["asignaciones"],
             "decisiones": snap["decisiones"],
-            "eventos_recientes": list(self._weather_cache)[-eventos_limit:],
+            "eventos_recientes": list(self._events_cache)[-eventos_limit:],
+            "lecturas_clima_recientes": list(self._weather_cache)[-eventos_limit:],
         }
 
     # ------------------------------------------------------------------
@@ -321,14 +327,14 @@ class SimulacionReplay(_SimulacionBase):
            el historico (ver `_ha_alcanzado_fin_historico`).
         """
         from kafka import KafkaConsumer, TopicPartition
-        from kafka_bus import _kafka_common_config
+        from kafka_bus import _deserializar_json_seguro, _kafka_common_config
 
         # Sin group_id: el consumer no hace commit ni interfiere con la
         # posicion de los consumidores de produccion.
         consumer = KafkaConsumer(
             group_id=None,
             enable_auto_commit=False,
-            value_deserializer=lambda v: json.loads(v.decode('utf-8', errors='replace')),
+            value_deserializer=_deserializar_json_seguro,
             session_timeout_ms=15000,
             request_timeout_ms=60000,
             api_version_auto_timeout_ms=10000,
@@ -679,6 +685,7 @@ class SimulacionReplay(_SimulacionBase):
         except Exception as exc:
             logger.warning("[%s] manejar_evento fallo: %s", self.sim_id, exc)
             return
+        self._events_cache.append(marcado)
         self.eventos_procesados += 1
 
 

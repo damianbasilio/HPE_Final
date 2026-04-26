@@ -1,6 +1,7 @@
 import json
 import logging
 import threading
+import time
 from collections import deque
 from typing import Callable, Deque, Optional
 
@@ -82,6 +83,8 @@ class KafkaBus:
         self._producer: Optional[KafkaProducer] = None
         self._weather_consumer: Optional[KafkaConsumer] = None
         self._events_consumer: Optional[KafkaConsumer] = None
+        self._publish_since_flush = 0
+        self._last_publish_flush = time.monotonic()
         self.disponible = False
 
         try:
@@ -216,7 +219,7 @@ class KafkaBus:
                             if station_id:
                                 self._weather_by_station[station_id] = valor
                         elif etiqueta == "events":
-                            logger.info(
+                            logger.debug(
                                 "[Kafka] events offset=%s key=%s payload=%s",
                                 record.offset, record.key, valor,
                             )
@@ -233,7 +236,12 @@ class KafkaBus:
             return
         try:
             self._producer.send(KAFKA_TOPIC_TELEMETRIA, payload)
-            self._producer.flush(1)
+            self._publish_since_flush += 1
+            ahora = time.monotonic()
+            if self._publish_since_flush >= 25 or (ahora - self._last_publish_flush) >= 2.0:
+                self._producer.flush(0.5)
+                self._publish_since_flush = 0
+                self._last_publish_flush = ahora
         except Exception as exc:
             logger.warning("Error publicando telemetria: %s", exc)
 

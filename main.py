@@ -772,13 +772,16 @@ def sim_weather(sim_id):
     sim = gestor_simulaciones.snapshot(sim_id, decisiones_limit=0, eventos_limit=20)
     if not sim:
         return jsonify({"error": "Simulacion no encontrada"}), 404
+    lecturas = sim.get('lecturas_clima_recientes')
+    if lecturas is None:
+        lecturas = sim.get('eventos_recientes', [])
     return jsonify({
         "sim_id": sim_id,
         "modo": sim.get('modo'),
         "virtual_now": sim.get('virtual_now'),
         "factor_clima": sim.get('factor_clima'),
         "clima_actual": sim.get('clima_actual'),
-        "lecturas_recientes": sim.get('eventos_recientes', []),
+        "lecturas_recientes": lecturas,
     })
 
 @app.route('/simulations/<sim_id>/pause', methods=['POST'])

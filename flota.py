@@ -722,6 +722,16 @@ class FleetManager:
         self.incidentes[incidente['incident_id']] = incidente
         self.asignaciones[unidad.id] = incidente['incident_id']
 
+        # Notificar a la unidad de su nueva mision (hook extensible).
+        # Se llama FUERA del lock para que las subclases que hagan
+        # operaciones de red (e.g. consulta historial clinico) no bloqueen
+        # el bucle de despacho. El hook lanza su propio hilo si lo necesita.
+        try:
+            unidad.on_asignacion_incidente(dict(incidente))
+        except Exception as exc:
+            logger.warning("[Flota] on_asignacion_incidente fallo para %s: %s",
+                           unidad.id, exc)
+
         logger.info(
             "[Flota] %s/%s -> %s ETA=%ss dist=%.2fkm factor=%.2f",
             unidad.TIPO, unidad.id[:8], incidente['incident_id'],

@@ -240,6 +240,34 @@ class VehiculoBase:
 
         pass
 
+    def on_asignacion_incidente(self, incidente: dict) -> None:
+        """Hook invocado por FleetManager inmediatamente despues de asignar
+        un incidente a este vehiculo.
+
+        Cada subtipo puede sobreescribir este metodo para realizar acciones
+        especificas segun la naturaleza de su mision:
+          - Ambulancia: consulta historial clinico del nodo de salud.
+          - Bomberos:   consulta informe de la instalacion (inventario).
+          - Policia:    registra datos de la zona del incidente.
+          - Dron:       calcula perfil de vuelo optimo.
+
+        El metodo se llama en un hilo separado para no bloquear el bucle
+        de despacho principal. Los subtipos que realicen operaciones de
+        red deben tenerlo en cuenta y usar sus propios atributos para
+        almacenar el resultado de forma thread-safe.
+        """
+        pass
+
+    def obtener_contexto_mision(self) -> dict:
+        """Devuelve el contexto de mision especifico del vehiculo.
+
+        En la clase base devuelve un dict vacio. Los subtipos exponen aqui
+        la informacion obtenida tras `on_asignacion_incidente` (historial
+        clinico, informe de instalacion, etc.) para que los endpoints de la
+        API puedan servirla al personal a bordo.
+        """
+        return {}
+
     def _acumular_rastro(self):
         if self.velocidad <= 0:
             return

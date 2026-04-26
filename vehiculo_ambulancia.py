@@ -2,7 +2,9 @@
 
 import random
 import logging
+import threading
 from vehiculo_base import VehiculoBase
+from historial_clinico import obtener_historial
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,12 @@ class Ambulancia(VehiculoBase):
         self.tiempo_desde_ultimo_reporte_s = 0.0
         self.reportes_clinicos = []
         self.alertas_clinicas = []
+
+        # Historial clinico obtenido del nodo de salud de la isla.
+        # Se rellena de forma asincrona en on_asignacion_incidente().
+        self._historial_clinico: dict = {}
+        self._historial_lock = threading.Lock()
+        self._incidente_actual_dict: dict = {}
 
     def _iniciar_ruta_patrulla(self):
 
@@ -156,6 +164,63 @@ class Ambulancia(VehiculoBase):
         if len(self.reportes_clinicos) > 20:
             self.reportes_clinicos = self.reportes_clinicos[-20:]
 
+    # ------------------------------------------------------------------
+    # Historial clinico — nodo de salud de la isla
+    # ------------------------------------------------------------------
+
+    def on_asignacion_incidente(self, incidente: dict) -> None:
+        """Consulta el nodo de salud de forma asincrona nada mas recibir
+        la asignacion, para que el historial clinico este disponible
+        mientras la ambulancia se dirige al punto de intervencion.
+
+        Almacena el resultado en `_historial_clinico` de forma thread-safe.
+        """
+        self._incidente_actual_dict = dict(incidente or {})
+        with self._historial_lock:
+            self._historial_clinico = {}
+
+        def _consultar():
+            paciente_id = (
+                incidente.get('paciente_id')
+                or incidente.get('patient_id')
+                or incidente.get('incident_id')
+                or f"PAC-{incidente.get('id', self.id)}"
+            )
+            try:
+                historial = obtener_historial(paciente_id, incidente=incidente)
+                with self._historial_lock:
+                    self._historial_clinico = historial
+                logger.info(
+                    "[Ambulancia %s] Historial clinico disponible (fuente=%s, alergias=%s)",
+                    self.id[:8],
+                    historial.get('fuente', '?'),
+                    historial.get('alergias', []),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[Ambulancia %s] No se pudo obtener historial clinico: %s",
+                    self.id[:8], exc,
+                )
+
+        threading.Thread(target=_consultar, daemon=True,
+                         name=f"hc-{self.id[:6]}").start()
+
+    def obtener_contexto_mision(self) -> dict:
+        """Devuelve el historial clinico disponible para el personal medico
+        a bordo. Si la consulta al nodo de salud aun no ha terminado,
+        devuelve lo que haya (puede ser un dict vacio).
+        """
+        with self._historial_lock:
+            historial = dict(self._historial_clinico)
+        return {
+            "tipo_contexto": "historial_clinico",
+            "incidente_id": self._incidente_actual_dict.get('incident_id'),
+            "historial": historial,
+            "disponible": bool(historial),
+        }
+
+    # ------------------------------------------------------------------
+
     def finalizar_intervencion(self):
 
         if self.paciente_a_bordo:
@@ -166,6 +231,9 @@ class Ambulancia(VehiculoBase):
         self.tiempo_desde_ultimo_reporte_s = 0.0
         self.consumo_oxigeno_lpm = 0.0
         self.alertas_clinicas = []
+        with self._historial_lock:
+            self._historial_clinico = {}
+        self._incidente_actual_dict = {}
 
     def obtener_estado_especializado(self):
         sv = (self.paciente or {}).get('signos_vitales') if self.paciente else None
@@ -173,6 +241,18 @@ class Ambulancia(VehiculoBase):
             sv = {k: round(v, 1) if isinstance(v, (int, float)) else v for k, v in sv.items()}
 
         ultimo_reporte = self.reportes_clinicos[-1] if self.reportes_clinicos else None
+
+        with self._historial_lock:
+            historial_resumen = {
+                "disponible": bool(self._historial_clinico),
+                "fuente": self._historial_clinico.get('fuente'),
+                "alergias": self._historial_clinico.get('alergias', []),
+                "medicacion_activa": self._historial_clinico.get('medicacion_activa', []),
+                "antecedentes": self._historial_clinico.get('antecedentes', []),
+                "notas_clinicas": self._historial_clinico.get('notas_clinicas', []),
+                "grupo_sanguineo": self._historial_clinico.get('grupo_sanguineo'),
+                "obtenido_en": self._historial_clinico.get('obtenido_en'),
+            } if self._historial_clinico else {"disponible": False}
 
         return {
             'nivel_soporte': self.nivel_soporte,
@@ -188,4 +268,5 @@ class Ambulancia(VehiculoBase):
             'alertas_clinicas': list(self.alertas_clinicas),
             'reportes_emitidos': len(self.reportes_clinicos),
             'ultimo_reporte_clinico': ultimo_reporte,
+            'historial_clinico': historial_resumen,
         }

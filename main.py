@@ -35,6 +35,7 @@ from costos import (
 )
 from entorno import configurar_bus, obtener_contexto_entorno_completo
 from flota import FleetManager
+from historial_clinico import obtener_historial, obtener_contexto_mision
 from ia import responder_chat
 from inventario_aruba import InventarioAruba
 from kafka_bus import KafkaBus
@@ -266,6 +267,7 @@ def proteger_vistas():
         'internal_vehicles', 'internal_incidents',
         'costs_summary', 'costs_rates', 'costs_incidents', 'costs_vehicle',
         'costs_estimate',
+        'vehicle_historial', 'vehicle_contexto_mision',
     }
     if request.endpoint in public_endpoints or request.path.startswith('/static/'):
         return
@@ -579,6 +581,67 @@ def get_vehicle(vehicle_id):
     estado = veh.obtener_estado()
     estado['nombre'] = veh.metadatos.get('nombre', veh.id)
     return jsonify(_map_vehicle(estado))
+
+@app.route('/vehicles/<vehicle_id>/historial')
+def vehicle_historial(vehicle_id):
+    """Devuelve el historial clinico del paciente asociado al vehiculo.
+
+    Para ambulancias: retorna el historial clinico obtenido del nodo de
+    salud de la isla (o simulado) mientras la unidad se dirige al
+    punto de intervencion.
+    Para otros tipos de vehiculo: retorna el contexto de mision especifico.
+
+    Query params:
+      - refresh=1  -> invalida la cache y fuerza nueva consulta al nodo de salud.
+      - paciente_id -> consulta directa por ID de paciente (opcional).
+    """
+    veh = fleet.obtener_vehiculo(vehicle_id)
+    if not veh:
+        return jsonify({
+            "detail": [{
+                "loc": ["path", "vehicle_id"],
+                "msg": "Vehicle not found",
+                "type": "value_error.not_found",
+                "input": vehicle_id,
+            }]
+        }), 422
+
+    # Si el vehiculo soporta el hook de mision, usarlo directamente
+    contexto = veh.obtener_contexto_mision()
+
+    # Si vino con ?refresh=1 y hay un incidente asignado, re-consultar el nodo
+    if request.args.get('refresh') == '1':
+        inc_id = fleet.asignaciones.get(vehicle_id)
+        inc = fleet.incidentes.get(inc_id, {}) if inc_id else {}
+        pid = (
+            request.args.get('paciente_id')
+            or inc.get('paciente_id')
+            or inc.get('patient_id')
+            or inc_id
+            or f"PAC-{vehicle_id}"
+        )
+        from historial_clinico import invalidar_cache
+        invalidar_cache(pid)
+        historial = obtener_historial(pid, incidente=inc)
+        contexto = {
+            "tipo_contexto": "historial_clinico",
+            "incidente_id": inc.get('incident_id'),
+            "historial": historial,
+            "disponible": bool(historial),
+        }
+
+    return jsonify({
+        "vehicle_id": vehicle_id,
+        "tipo": veh.TIPO,
+        **contexto,
+    })
+
+
+@app.route('/vehicles/<vehicle_id>/contexto_mision')
+def vehicle_contexto_mision(vehicle_id):
+    """Alias semantico de /vehicles/<id>/historial para otros tipos de vehiculo."""
+    return vehicle_historial(vehicle_id)
+
 
 @app.route('/incidents')
 def list_incidents():

@@ -93,10 +93,43 @@
     .vehicle-card:focus-visible,.incident-card:focus-visible{
       outline:2px solid var(--accent);outline-offset:2px
     }
+
+    /* ── Navbar / Header ── */
+    #navbar{
+      position:sticky;top:0;z-index:500;
+      background:var(--bg-surface);
+      border-bottom:1px solid var(--border-ui);
+      padding:0 20px;height:56px;
+      display:flex;align-items:center;
+      transition:background .25s,border-color .25s,box-shadow .25s;
+    }
+    #navbar .container{display:flex;align-items:center;gap:20px;width:100%}
+    #navbar.scrolled{box-shadow:0 2px 16px rgba(0,0,0,0.3)}
+    .logo{font-size:1.05rem;font-weight:700;letter-spacing:.06em;
+      color:var(--text-primary);text-decoration:none;transition:color .25s}
+    .nav-links{display:flex;list-style:none;gap:2px;flex:1}
+    .nav-links a{display:block;padding:6px 12px;border-radius:6px;
+      font-size:0.82rem;color:var(--text-muted);text-decoration:none;
+      transition:background .15s,color .15s}
+    .nav-links a:hover{background:rgba(128,128,128,0.1);color:var(--text-primary)}
+    .nav-links a.active{color:var(--accent)}
+    .user-info-wrapper{display:flex;align-items:center;gap:12px}
+    .logout-btn{font-size:0.78rem;color:var(--text-muted);text-decoration:none;
+      border:1px solid var(--border-ui);padding:4px 10px;border-radius:6px;
+      transition:background .15s,color .15s,border-color .25s}
+    .logout-btn:hover{background:rgba(128,128,128,0.1);color:var(--text-primary)}
+    .connection-dot{width:8px;height:8px;border-radius:50%;transition:background .3s}
+    .connection-dot.connected{background:#10b981}
+    .connection-dot.disconnected{background:#94a3b8;animation:pulse-dot 1.5s infinite}
+    @keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.3}}
+
+    /* ── Layout general ── */
+    .container{max-width:1600px;margin:0 auto;padding:0 20px}
+    .main-content{padding:20px 0}
+    footer{padding:14px 20px;font-size:0.74rem;color:var(--text-muted);
+      border-top:1px solid var(--border-ui);background:var(--bg-surface);
+      transition:background .25s,border-color .25s,color .25s}
   </style>
-  
-  
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=6">
   {% block head_extra %}{% endblock %}
 </head>
 <body data-rol="{{ usuario.rol if usuario else 'invitado' }}">

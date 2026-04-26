@@ -595,7 +595,7 @@ class FleetManager:
             resolved_at = evento.get('updated_at') or datetime.now().isoformat()
 
         logger.info(
-            "[Flota] Evento Kafka recibido: id=%s type=%s severity=%s lat=%s lon=%s resolved_at=%s",
+            "[Flota] Evento Generado: id=%s type=%s severity=%s lat=%s lon=%s resolved_at=%s",
             ev_id, tipo_evento, sev, lat, lon, resolved_at,
         )
 

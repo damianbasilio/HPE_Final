@@ -21,6 +21,61 @@ const SEVERIDAD_COLOR = {
   critical: '#ef4444',
 };
 
+/* SVG icons para marcadores POI — sin emojis, paths geométricos puros */
+const _POI_SVG = {
+  // Salud: cruz médica
+  hospital:         `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="10" y1="3" x2="10" y2="17"/><line x1="3" y1="10" x2="17" y2="10"/></svg>`,
+  clinic:           `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="10" y1="3" x2="10" y2="17"/><line x1="3" y1="10" x2="17" y2="10"/></svg>`,
+  medical:          `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="10" y1="3" x2="10" y2="17"/><line x1="3" y1="10" x2="17" y2="10"/></svg>`,
+  health:           `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="10" y1="3" x2="10" y2="17"/><line x1="3" y1="10" x2="17" y2="10"/></svg>`,
+  // Farmacia: cruz con círculo
+  pharmacy:         `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10" cy="10" r="7"/><line x1="10" y1="6" x2="10" y2="14"/><line x1="6" y1="10" x2="14" y2="10"/></svg>`,
+  // Bomberos: triángulo (llama estilizada)
+  fire_station:     `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="10,2 18,17 2,17"/></svg>`,
+  fire:             `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="10,2 18,17 2,17"/></svg>`,
+  bomberos:         `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="10,2 18,17 2,17"/></svg>`,
+  // Policía: escudo
+  police:           `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 2 L18 5 L18 12 C18 16.5 10 19 10 19 C10 19 2 16.5 2 12 L2 5 Z"/></svg>`,
+  police_station:   `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 2 L18 5 L18 12 C18 16.5 10 19 10 19 C10 19 2 16.5 2 12 L2 5 Z"/></svg>`,
+  policia:          `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 2 L18 5 L18 12 C18 16.5 10 19 10 19 C10 19 2 16.5 2 12 L2 5 Z"/></svg>`,
+  // Combustible: gota
+  fuel:             `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M10 3 C10 3 16 9 16 14 A6 6 0 0 1 4 14 C4 9 10 3 10 3Z"/></svg>`,
+  gas_station:      `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M10 3 C10 3 16 9 16 14 A6 6 0 0 1 4 14 C4 9 10 3 10 3Z"/></svg>`,
+  petrol:           `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M10 3 C10 3 16 9 16 14 A6 6 0 0 1 4 14 C4 9 10 3 10 3Z"/></svg>`,
+  // Recarga eléctrica: rayo
+  charging_station: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="12,2 7,10 12,10 8,18"/></svg>`,
+  // Puerto: ancla
+  port:             `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10" cy="5" r="2"/><line x1="10" y1="7" x2="10" y2="17"/><line x1="4" y1="17" x2="16" y2="17"/><line x1="4" y1="13" x2="10" y2="13"/><line x1="10" y1="13" x2="16" y2="13"/></svg>`,
+  marina:           `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10" cy="5" r="2"/><line x1="10" y1="7" x2="10" y2="17"/><line x1="4" y1="17" x2="16" y2="17"/><line x1="4" y1="13" x2="10" y2="13"/><line x1="10" y1="13" x2="16" y2="13"/></svg>`,
+  harbor:           `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10" cy="5" r="2"/><line x1="10" y1="7" x2="10" y2="17"/><line x1="4" y1="17" x2="16" y2="17"/><line x1="4" y1="13" x2="10" y2="13"/><line x1="10" y1="13" x2="16" y2="13"/></svg>`,
+  // Aeropuerto: avión top-down
+  airport:          `<svg viewBox="0 0 20 20" fill="currentColor" stroke="none"><path d="M10 1 C10 1 12.5 5.5 12.5 9 L18 12 L18 14 L12.5 13 L11 18 L10 19 L9 18 L7.5 13 L2 14 L2 12 L7.5 9 C7.5 5.5 10 1 10 1Z"/></svg>`,
+  // Helipuerto: H en círculo
+  helipad:          `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10" cy="10" r="8"/><line x1="6" y1="5" x2="6" y2="15"/><line x1="14" y1="5" x2="14" y2="15"/><line x1="6" y1="10" x2="14" y2="10"/></svg>`,
+  // Emergencias: exclamación
+  emergency:        `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="10" y1="3" x2="10" y2="12"/><circle cx="10" cy="16" r="1.5" fill="currentColor" stroke="none"/></svg>`,
+  // Refugio: casa simple
+  shelter:          `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,13 10,3 18,13"/><rect x="7" y="13" width="6" height="5"/></svg>`,
+  // Protección civil: escudo con cruz
+  civil_protection: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 2 L18 5 L18 12 C18 16.5 10 19 10 19 C10 19 2 16.5 2 12 L2 5 Z"/><line x1="10" y1="7" x2="10" y2="14"/><line x1="7" y1="10.5" x2="13" y2="10.5"/></svg>`,
+  proteccion_civil: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 2 L18 5 L18 12 C18 16.5 10 19 10 19 C10 19 2 16.5 2 12 L2 5 Z"/><line x1="10" y1="7" x2="10" y2="14"/><line x1="7" y1="10.5" x2="13" y2="10.5"/></svg>`,
+  // Gobierno: columnas
+  government:       `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="8" x2="18" y2="8"/><line x1="10" y1="2" x2="10" y2="8"/><rect x="2" y="16" width="16" height="2"/><line x1="5" y1="8" x2="5" y2="16"/><line x1="10" y1="8" x2="10" y2="16"/><line x1="15" y1="8" x2="15" y2="16"/></svg>`,
+  town_hall:        `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="2" y1="8" x2="18" y2="8"/><line x1="10" y1="2" x2="10" y2="8"/><rect x="2" y="16" width="16" height="2"/><line x1="5" y1="8" x2="5" y2="16"/><line x1="10" y1="8" x2="10" y2="16"/><line x1="15" y1="8" x2="15" y2="16"/></svg>`,
+};
+
+// Icono por defecto: círculo con punto de interrogación
+const _POI_SVG_DEFAULT = `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10" cy="10" r="8"/><path d="M7.5 8 C7.5 6 12.5 6 12.5 9 C12.5 11 10 11 10 13"/><circle cx="10" cy="16" r="1" fill="currentColor" stroke="none"/></svg>`;
+
+function _getSvgPoi(tipo) {
+  if (_POI_SVG[tipo]) return _POI_SVG[tipo];
+  // Coincidencia parcial (p.ej. "hospital_general" → hospital)
+  for (const [clave, svg] of Object.entries(_POI_SVG)) {
+    if (tipo.includes(clave)) return svg;
+  }
+  return _POI_SVG_DEFAULT;
+}
+
 class PanelFlota {
   constructor({ idMapa, modo = 'visualizador', onSeleccion = null } = {}) {
     this.modo = modo;
@@ -65,9 +120,48 @@ class PanelFlota {
 
       // Click en zona vacia del mapa = deseleccionar unidad y limpiar ruta/destino
       this.mapa.on('click', () => this.seleccionarUnidad(null));
+
+      // Cargar POIs relevantes del inventario
+      this._cargarPois();
     } catch (err) {
       console.error('[PanelFlota] error inicializando mapa:', err);
       this.mapa = null;
+    }
+  }
+
+  async _cargarPois() {
+    if (!this.mapa) return;
+    try {
+      const res = await fetch('/api/map/pois');
+      if (!res.ok) return;
+      const data = await res.json();
+      const pois = data.pois || [];
+      if (pois.length > 0) {
+        this._dibujarPois(pois);
+        console.info(`[PanelFlota] ${pois.length} POIs relevantes cargados en el mapa`);
+      }
+    } catch (err) {
+      console.warn('[PanelFlota] No se pudieron cargar POIs:', err);
+    }
+  }
+
+  _dibujarPois(pois) {
+    if (!this.mapa) return;
+    for (const poi of pois) {
+      const svgIcon = _getSvgPoi(poi.tipo);
+      const icon = L.divIcon({
+        className: '',
+        html: `<div class="dt-poi-marker" style="border-color:${poi.color};color:${poi.color};">${svgIcon}</div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+        tooltipAnchor: [0, -16],
+      });
+      L.marker([poi.lat, poi.lon], { icon, zIndexOffset: -200 })
+        .bindTooltip(
+          `<strong>${poi.label}</strong><br>${poi.nombre}`,
+          { direction: 'top', className: 'dt-poi-tooltip' }
+        )
+        .addTo(this.mapa);
     }
   }
 

@@ -541,6 +541,107 @@ def health_inventory():
             "error": repr(exc),
         }), 500
 
+@app.route('/api/map/pois')
+def api_map_pois():
+    """POIs de la API de inventario filtrados por relevancia operativa para los gemelos digitales."""
+    # Tipos de POI relevantes para emergencias — color y etiqueta (icono SVG gestionado en el frontend)
+    TIPOS_RELEVANTES = {
+        # Salud
+        'hospital':          {'color': '#ef4444', 'label': 'Hospital'},
+        'clinic':            {'color': '#ef4444', 'label': 'Clinica'},
+        'medical':           {'color': '#ef4444', 'label': 'Centro medico'},
+        'health':            {'color': '#ef4444', 'label': 'Salud'},
+        'pharmacy':          {'color': '#f87171', 'label': 'Farmacia'},
+        # Bomberos
+        'fire_station':      {'color': '#f97316', 'label': 'Parque bomberos'},
+        'fire':              {'color': '#f97316', 'label': 'Bomberos'},
+        'bomberos':          {'color': '#f97316', 'label': 'Parque bomberos'},
+        # Policia
+        'police':            {'color': '#3b82f6', 'label': 'Policia'},
+        'police_station':    {'color': '#3b82f6', 'label': 'Comisaria'},
+        'policia':           {'color': '#3b82f6', 'label': 'Policia'},
+        # Combustible / recarga
+        'fuel':              {'color': '#f59e0b', 'label': 'Gasolinera'},
+        'gas_station':       {'color': '#f59e0b', 'label': 'Gasolinera'},
+        'petrol':            {'color': '#f59e0b', 'label': 'Combustible'},
+        'charging_station':  {'color': '#22d3ee', 'label': 'Carga electrica'},
+        # Maritimo / aereo
+        'port':              {'color': '#06b6d4', 'label': 'Puerto'},
+        'marina':            {'color': '#06b6d4', 'label': 'Marina'},
+        'harbor':            {'color': '#06b6d4', 'label': 'Puerto'},
+        'airport':           {'color': '#8b5cf6', 'label': 'Aeropuerto'},
+        'helipad':           {'color': '#8b5cf6', 'label': 'Helipuerto'},
+        # Emergencias / proteccion civil
+        'emergency':         {'color': '#ef4444', 'label': 'Emergencias'},
+        'shelter':           {'color': '#10b981', 'label': 'Refugio'},
+        'civil_protection':  {'color': '#10b981', 'label': 'Proteccion civil'},
+        'proteccion_civil':  {'color': '#10b981', 'label': 'Proteccion civil'},
+        # Gobierno / coordinacion
+        'government':        {'color': '#6366f1', 'label': 'Gobierno'},
+        'town_hall':         {'color': '#6366f1', 'label': 'Ayuntamiento'},
+    }
+
+    def _coord(poi, *claves):
+        for c in claves:
+            v = poi.get(c)
+            if v is not None:
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    pass
+        # Buscar en sub-objetos comunes
+        for sub in ('location', 'coordinates', 'position', 'geo'):
+            obj = poi.get(sub)
+            if isinstance(obj, dict):
+                for c in claves:
+                    v = obj.get(c)
+                    if v is not None:
+                        try:
+                            return float(v)
+                        except (TypeError, ValueError):
+                            pass
+        return None
+
+    try:
+        todos = inventario.obtener_pois() or []
+    except Exception:
+        todos = []
+
+    resultado = []
+    for poi in todos:
+        tipo_raw = str(
+            poi.get('type') or poi.get('poi_type') or
+            poi.get('category') or poi.get('kind') or ''
+        ).lower().strip().replace('-', '_').replace(' ', '_')
+
+        # Busqueda exacta primero, luego parcial (p.ej. 'hospital_general' → 'hospital')
+        meta = TIPOS_RELEVANTES.get(tipo_raw)
+        if not meta:
+            for tipo_clave, tipo_meta in TIPOS_RELEVANTES.items():
+                if tipo_clave in tipo_raw:
+                    meta = tipo_meta
+                    break
+        if not meta:
+            continue
+
+        lat = _coord(poi, 'lat', 'latitude', 'y')
+        lon = _coord(poi, 'lon', 'lng', 'longitude', 'x')
+        if lat is None or lon is None:
+            continue
+
+        resultado.append({
+            'id':     poi.get('id') or poi.get('poi_id') or poi.get('_id') or str(len(resultado)),
+            'nombre': poi.get('name') or poi.get('nombre') or poi.get('title') or meta['label'],
+            'tipo':   tipo_raw,
+            'color':  meta['color'],
+            'label':  meta['label'],
+            'lat':    lat,
+            'lon':    lon,
+        })
+
+    return jsonify({'pois': resultado, 'total': len(resultado)})
+
+
 @app.route('/health/events_trace')
 def health_events_trace():
     limite = int(request.args.get('limit', '50'))

@@ -13,15 +13,6 @@
     }
   },
   "channels": {
-    "seedSolutionsTopic": {
-      "address": "aruba.team.seed-solutions-ai-team",
-      "description": "Fleet telemetry sent by Seed Solutions AI Team",
-      "messages": {
-        "fleetTelemetry": {
-          "$ref": "#/components/messages/FleetTelemetry"
-        }
-      }
-    },
     "sec52Topic": {
       "address": "aruba.team.52sec",
       "description": "Fleet telemetry sent by 52Sec",
@@ -30,70 +21,15 @@
           "$ref": "#/components/messages/FleetTelemetry"
         }
       }
-    },
-    "gtpTopic": {
-      "address": "aruba.team.gtp",
-      "description": "Fleet telemetry sent by GTP",
-      "messages": {
-        "fleetTelemetry": {
-          "$ref": "#/components/messages/FleetTelemetry"
-        }
-      }
-    },
-    "tresDiasTopic": {
-      "address": "aruba.team.tres-dias-de-gracia",
-      "description": "Fleet telemetry sent by Tres Días de Gracia",
-      "messages": {
-        "fleetTelemetry": {
-          "$ref": "#/components/messages/FleetTelemetry"
-        }
-      }
-    },
-    "cyberQueensTopic": {
-      "address": "aruba.team.cyberqueens",
-      "description": "Fleet telemetry sent by CyberQueens",
-      "messages": {
-        "fleetTelemetry": {
-          "$ref": "#/components/messages/FleetTelemetry"
-        }
-      }
     }
   },
   "operations": {
-    "receiveSeedSolutionsTelemetry": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/seedSolutionsTopic"
-      },
-      "summary": "Receive telemetry from Seed Solutions AI Team"
-    },
     "receive52SecTelemetry": {
       "action": "receive",
       "channel": {
         "$ref": "#/channels/sec52Topic"
       },
       "summary": "Receive telemetry from 52Sec"
-    },
-    "receiveGTPTelemetry": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/gtpTopic"
-      },
-      "summary": "Receive telemetry from GTP"
-    },
-    "receiveTresDiasTelemetry": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/tresDiasTopic"
-      },
-      "summary": "Receive telemetry from Tres Días de Gracia"
-    },
-    "receiveCyberQueensTelemetry": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/cyberQueensTopic"
-      },
-      "summary": "Receive telemetry from CyberQueens"
     }
   },
   "components": {
@@ -108,7 +44,7 @@
         },
         "examples": [
           {
-            "name": "cyberQueensExample",
+            "name": "52SecExample",
             "summary": "Example fleet telemetry message",
             "payload": {
               "schema_version": "1.0.0",

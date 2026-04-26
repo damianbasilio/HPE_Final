@@ -255,6 +255,7 @@ function describirEspecializado(unidad) {
         ['Protocolo', e.protocolo_contencion || '--'],
         ['Agentes', e.agentes_operativos ?? '--'],
         ['Detenidos', e.detenidos ?? 0],
+        ['Tiempo contencion', `${fmtNum(e.tiempo_contencion_s, 0)} s`],
       ];
     case 'ambulancia':
       const sv = (e.paciente && e.paciente.signos_vitales) || {};
@@ -264,6 +265,8 @@ function describirEspecializado(unidad) {
         ['Paciente a bordo', e.paciente_a_bordo ? 'si' : 'no'],
         ['Triage', e.paciente?.triage || '--'],
         ['FC / SpO2', `${fmtNum(sv.fc, 0)} / ${fmtNum(sv.spo2, 0)}`],
+        ['Alertas clinicas', (e.alertas_clinicas || []).join(', ') || '--'],
+        ['Reportes', e.reportes_emitidos ?? 0],
       ];
     case 'bomberos':
       return [
@@ -272,6 +275,8 @@ function describirEspecializado(unidad) {
         ['Espuma', `${fmtNum(e.espuma_pct, 0)} %`],
         ['Tipo incendio', e.tipo_incendio || '--'],
         ['Escala', e.escala_desplegada ? 'desplegada' : 'recogida'],
+        ['Control fuego', fmtNum(e.control_fuego, 2)],
+        ['Riesgo reignicion', fmtNum(e.riesgo_reignicion, 2)],
       ];
     case 'proteccion_civil':
       return [
@@ -279,6 +284,9 @@ function describirEspecializado(unidad) {
         ['Kits disponibles', e.kits_disponibles ?? '--'],
         ['Voluntarios', e.voluntarios_activos ?? '--'],
         ['Evacuados', e.evacuados_total ?? 0],
+        ['Centros activos', e.centros_evacuacion_activos ?? 0],
+        ['Indice estabilidad', fmtNum(e.indice_estabilidad, 2)],
+        ['Alertas emitidas', e.alertas_emitidas ?? 0],
       ];
     case 'dron':
       return [
@@ -288,6 +296,9 @@ function describirEspecializado(unidad) {
         ['Link', `${fmtNum(e.link_pct, 0)} %`],
         ['Imagenes', e.imagenes_capturadas ?? 0],
         ['Autonomia', `${fmtNum(e.autonomia_restante_min, 1)} min`],
+        ['Objetivo', e.objetivo_bloqueado ? 'bloqueado' : 'sin lock'],
+        ['Riesgo detectado', e.riesgo_detectado || 'ninguno'],
+        ['Eventos detectados', e.eventos_detectados ?? 0],
       ];
     default:
       return [];

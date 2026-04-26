@@ -28,6 +28,9 @@ class Ambulancia(VehiculoBase):
         self.paciente_a_bordo = False
         self.paciente = None
         self.tiempo_atencion_s = 0.0
+        self.tiempo_desde_ultimo_reporte_s = 0.0
+        self.reportes_clinicos = []
+        self.alertas_clinicas = []
 
     def _iniciar_ruta_patrulla(self):
 
@@ -117,6 +120,42 @@ class Ambulancia(VehiculoBase):
             sv['fc'] = sv.get('fc', 80) + random.uniform(-0.05, 0.05)
             sv['spo2'] = sv.get('spo2', 95) + random.uniform(-0.02, 0.02)
 
+        self._actualizar_alertas_clinicas(sv)
+        self._emitir_reporte_clinico(delta_time, sv)
+
+    def _actualizar_alertas_clinicas(self, sv: dict):
+        fc = sv.get('fc')
+        spo2 = sv.get('spo2')
+        ta_sist = sv.get('ta_sist')
+
+        alertas = []
+        if isinstance(fc, (int, float)) and (fc >= 140 or fc <= 45):
+            alertas.append('frecuencia_cardiaca_critica')
+        if isinstance(spo2, (int, float)) and spo2 < 90:
+            alertas.append('spo2_baja')
+        if isinstance(ta_sist, (int, float)) and ta_sist < 90:
+            alertas.append('hipotension')
+
+        self.alertas_clinicas = alertas
+
+    def _emitir_reporte_clinico(self, delta_time: float, sv: dict):
+        self.tiempo_desde_ultimo_reporte_s += float(delta_time or 0)
+        if self.tiempo_desde_ultimo_reporte_s < 30.0:
+            return
+
+        self.tiempo_desde_ultimo_reporte_s = 0.0
+        reporte = {
+            't_atencion_s': int(self.tiempo_atencion_s),
+            'triage': (self.paciente or {}).get('triage'),
+            'fc': round(float(sv.get('fc', 0)), 1) if isinstance(sv.get('fc'), (int, float)) else None,
+            'spo2': round(float(sv.get('spo2', 0)), 1) if isinstance(sv.get('spo2'), (int, float)) else None,
+            'ta_sist': round(float(sv.get('ta_sist', 0)), 1) if isinstance(sv.get('ta_sist'), (int, float)) else None,
+            'alertas': list(self.alertas_clinicas),
+        }
+        self.reportes_clinicos.append(reporte)
+        if len(self.reportes_clinicos) > 20:
+            self.reportes_clinicos = self.reportes_clinicos[-20:]
+
     def finalizar_intervencion(self):
 
         if self.paciente_a_bordo:
@@ -124,12 +163,16 @@ class Ambulancia(VehiculoBase):
         self.paciente_a_bordo = False
         self.paciente = None
         self.tiempo_atencion_s = 0.0
+        self.tiempo_desde_ultimo_reporte_s = 0.0
         self.consumo_oxigeno_lpm = 0.0
+        self.alertas_clinicas = []
 
     def obtener_estado_especializado(self):
         sv = (self.paciente or {}).get('signos_vitales') if self.paciente else None
         if isinstance(sv, dict):
             sv = {k: round(v, 1) if isinstance(v, (int, float)) else v for k, v in sv.items()}
+
+        ultimo_reporte = self.reportes_clinicos[-1] if self.reportes_clinicos else None
 
         return {
             'nivel_soporte': self.nivel_soporte,
@@ -141,5 +184,8 @@ class Ambulancia(VehiculoBase):
                 **(self.paciente or {}),
                 'signos_vitales': sv
             } if self.paciente else None,
-            'tiempo_atencion_s': int(self.tiempo_atencion_s)
+            'tiempo_atencion_s': int(self.tiempo_atencion_s),
+            'alertas_clinicas': list(self.alertas_clinicas),
+            'reportes_emitidos': len(self.reportes_clinicos),
+            'ultimo_reporte_clinico': ultimo_reporte,
         }

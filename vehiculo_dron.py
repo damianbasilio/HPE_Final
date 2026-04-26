@@ -23,6 +23,12 @@ class VehiculoDron(VehiculoBase):
         self.link_pct = 100.0          
         self.imagenes_capturadas = 0
         self.tiempo_vuelo_s = 0.0
+        self.objetivo_bloqueado = False
+        self.riesgo_detectado = 'ninguno'
+        self.eventos_detectados = 0
+        self._tiempo_reporte_s = 0.0
+        self._acumulador_deteccion_s = 0.0
+        self.reportes_aereos = []
 
     def _init_telemetria(self):
 
@@ -51,6 +57,10 @@ class VehiculoDron(VehiculoBase):
         else:
             self.altitud_m = 80.0 + 100.0 * float(intensidad or 0)
 
+        objetivo = modificadores.get('objetivo_bloqueado')
+        if objetivo is not None:
+            self.objetivo_bloqueado = bool(objetivo)
+
     def actualizar_logica_especializada(self, delta_time):
 
         if self.en_camino or self.en_escena:
@@ -61,8 +71,42 @@ class VehiculoDron(VehiculoBase):
 
             if self.en_escena and self.modo in ('scout', 'mapeo', 'termico'):
                 self.imagenes_capturadas += 1
+                self.objetivo_bloqueado = True
+                self._acumulador_deteccion_s += delta_time
+
+                umbral = 8.0 if self.modo == 'termico' else 12.0
+                if self._acumulador_deteccion_s >= umbral:
+                    self._acumulador_deteccion_s = 0.0
+                    self.eventos_detectados += 1
+                    if self.modo == 'termico':
+                        self.riesgo_detectado = 'hotspot_termico'
 
             self.link_pct = max(50.0, self.link_pct - 0.001 * delta_time * (self.altitud_m / 100.0))
+
+            if self.combustible < 20:
+                self.riesgo_detectado = 'bateria_critica'
+            elif self.link_pct < 65:
+                self.riesgo_detectado = 'enlace_debil'
+            elif self.riesgo_detectado not in ('hotspot_termico',):
+                self.riesgo_detectado = 'ninguno'
+
+            self._tiempo_reporte_s += delta_time
+            if self._tiempo_reporte_s >= 15:
+                self._tiempo_reporte_s = 0.0
+                self.reportes_aereos.append({
+                    'modo': self.modo,
+                    'altitud_m': round(self.altitud_m, 1),
+                    'bateria_pct': round(self.combustible, 1),
+                    'link_pct': round(self.link_pct, 1),
+                    'objetivo_bloqueado': self.objetivo_bloqueado,
+                    'riesgo_detectado': self.riesgo_detectado,
+                    'eventos_detectados': self.eventos_detectados,
+                })
+                if len(self.reportes_aereos) > 30:
+                    self.reportes_aereos = self.reportes_aereos[-30:]
+        else:
+            self.objetivo_bloqueado = False
+            self.link_pct = min(100.0, self.link_pct + 0.01 * delta_time)
 
     def _verificar_combustible(self):
 
@@ -80,8 +124,13 @@ class VehiculoDron(VehiculoBase):
         logger.info(f"[Dron {self.id[:8]}] Mision finalizada, aterrizando")
         self.altitud_m = 0.0
         self.modo = 'scout'
+        self.objetivo_bloqueado = False
+        self.riesgo_detectado = 'ninguno'
+        self._tiempo_reporte_s = 0.0
+        self._acumulador_deteccion_s = 0.0
 
     def obtener_estado_especializado(self):
+        ultimo_reporte = self.reportes_aereos[-1] if self.reportes_aereos else None
         return {
             'modo': self.modo,
             'altitud_m': round(self.altitud_m, 1),
@@ -89,5 +138,10 @@ class VehiculoDron(VehiculoBase):
             'link_pct': round(self.link_pct, 1),
             'autonomia_restante_min': round((self.combustible / 100.0) * self.BATERIA_CAPACIDAD_MIN, 1),
             'imagenes_capturadas': self.imagenes_capturadas,
-            'tiempo_vuelo_s': int(self.tiempo_vuelo_s)
+            'tiempo_vuelo_s': int(self.tiempo_vuelo_s),
+            'objetivo_bloqueado': self.objetivo_bloqueado,
+            'riesgo_detectado': self.riesgo_detectado,
+            'eventos_detectados': self.eventos_detectados,
+            'reportes_emitidos': len(self.reportes_aereos),
+            'ultimo_reporte_aereo': ultimo_reporte,
         }

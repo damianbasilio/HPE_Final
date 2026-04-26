@@ -14,6 +14,9 @@ class VehiculoPolicial(VehiculoBase):
         self.protocolo_contencion = 'ninguno'
         self.agentes_operativos = self.dotacion
         self.detenidos = 0
+        self.tiempo_contencion_s = 0.0
+        self._acumulador_historial_s = 0.0
+        self.historial_riesgo = []
 
     def aplicar_modificadores_especificos(self, tipo_escenario, modificadores, intensidad):
 
@@ -35,11 +38,48 @@ class VehiculoPolicial(VehiculoBase):
             self.detenidos += int(detenidos)
 
     def actualizar_logica_especializada(self, delta_time):
-
-        if str(self.escenario_activo).lower() == self.ESTADO_BASE.lower():
+        activo = str(self.escenario_activo).lower()
+        if activo == self.ESTADO_BASE.lower():
             self.riesgo_dinamico = max(0.05, self.riesgo_dinamico - 0.0005 * delta_time)
+            if self.riesgo_dinamico < 0.2:
+                self.protocolo_contencion = 'ninguno'
+            return
+
+        if self.en_escena:
+            if self.protocolo_contencion == 'armado':
+                self.riesgo_dinamico = min(1.0, self.riesgo_dinamico + 0.0015 * delta_time)
+            elif self.protocolo_contencion == 'perimetro':
+                self.riesgo_dinamico = min(1.0, self.riesgo_dinamico + 0.0010 * delta_time)
+            else:
+                self.riesgo_dinamico = min(1.0, self.riesgo_dinamico + 0.0006 * delta_time)
+        elif self.en_camino:
+            self.riesgo_dinamico = min(1.0, self.riesgo_dinamico + 0.0008 * delta_time)
+        else:
+            self.riesgo_dinamico = max(0.05, self.riesgo_dinamico - 0.0003 * delta_time)
+
+        if self.riesgo_dinamico >= 0.8:
+            self.protocolo_contencion = 'armado'
+        elif self.riesgo_dinamico >= 0.5:
+            self.protocolo_contencion = 'perimetro'
+        else:
+            self.protocolo_contencion = 'ninguno'
+
+        if self.protocolo_contencion != 'ninguno':
+            self.tiempo_contencion_s += delta_time
+
+        self._acumulador_historial_s += delta_time
+        if self._acumulador_historial_s >= 15:
+            self._acumulador_historial_s = 0.0
+            self.historial_riesgo.append({
+                't_contencion_s': int(self.tiempo_contencion_s),
+                'riesgo': round(self.riesgo_dinamico, 2),
+                'protocolo': self.protocolo_contencion,
+            })
+            if len(self.historial_riesgo) > 30:
+                self.historial_riesgo = self.historial_riesgo[-30:]
 
     def finalizar_intervencion(self):
+        self.riesgo_dinamico = max(0.2, min(self.riesgo_dinamico, 0.45))
         self.protocolo_contencion = 'ninguno'
 
     def obtener_estado_especializado(self):
@@ -47,5 +87,7 @@ class VehiculoPolicial(VehiculoBase):
             'riesgo_dinamico': round(self.riesgo_dinamico, 2),
             'protocolo_contencion': self.protocolo_contencion,
             'agentes_operativos': self.agentes_operativos,
-            'detenidos': self.detenidos
+            'detenidos': self.detenidos,
+            'tiempo_contencion_s': int(self.tiempo_contencion_s),
+            'historial_riesgo': self.historial_riesgo[-8:]
         }

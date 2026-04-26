@@ -30,6 +30,10 @@ class VehiculoBomberos(VehiculoBase):
         self.escala_desplegada = False
         self.tipo_incendio = None
         self.efectivos_operativos = self.dotacion
+        self.indice_control_fuego = 0.0
+        self.riesgo_reignicion = 0.0
+        self._tiempo_reporte_s = 0.0
+        self.reportes_operativos = []
 
     def _iniciar_ruta_patrulla(self):
         self.escenario_activo = self.ESTADO_BASE
@@ -66,6 +70,7 @@ class VehiculoBomberos(VehiculoBase):
     def actualizar_logica_especializada(self, delta_time):
 
         if not self.en_escena:
+            self.riesgo_reignicion = max(0.0, self.riesgo_reignicion - 0.002 * delta_time)
             return
 
         litros_agua = (self.caudal_agua_lpm / 60.0) * delta_time
@@ -79,6 +84,39 @@ class VehiculoBomberos(VehiculoBase):
         if self.espuma_litros <= 0:
             self.caudal_espuma_lpm = 0.0
 
+        recurso_agua = self.agua_litros / float(self.AGUA_CAPACIDAD_L)
+        recurso_espuma = self.espuma_litros / float(self.ESPUMA_CAPACIDAD_L)
+        eficacia = 0.45 * recurso_agua + 0.25 * recurso_espuma + 0.30 * (self.efectivos_operativos / max(1, self.dotacion))
+
+        if self.tipo_incendio in ('estructural', 'forestal'):
+            factor_control = 0.020
+            base_riesgo = 0.55
+        elif self.tipo_incendio == 'derrame':
+            factor_control = 0.028
+            base_riesgo = 0.65
+        elif self.tipo_incendio == 'vehicular':
+            factor_control = 0.025
+            base_riesgo = 0.45
+        else:
+            factor_control = 0.018
+            base_riesgo = 0.40
+
+        self.indice_control_fuego = min(1.0, self.indice_control_fuego + factor_control * eficacia * delta_time)
+        self.riesgo_reignicion = max(0.0, min(1.0, base_riesgo * (1.0 - self.indice_control_fuego)))
+
+        self._tiempo_reporte_s += delta_time
+        if self._tiempo_reporte_s >= 20:
+            self._tiempo_reporte_s = 0.0
+            self.reportes_operativos.append({
+                'control_fuego': round(self.indice_control_fuego, 2),
+                'riesgo_reignicion': round(self.riesgo_reignicion, 2),
+                'agua_pct': round(100.0 * recurso_agua, 1),
+                'espuma_pct': round(100.0 * recurso_espuma, 1),
+                'efectivos_operativos': self.efectivos_operativos,
+            })
+            if len(self.reportes_operativos) > 25:
+                self.reportes_operativos = self.reportes_operativos[-25:]
+
     def finalizar_intervencion(self):
 
         if self.tipo_incendio:
@@ -89,8 +127,12 @@ class VehiculoBomberos(VehiculoBase):
         self.caudal_espuma_lpm = 0.0
         self.agua_litros = self.AGUA_CAPACIDAD_L
         self.espuma_litros = self.ESPUMA_CAPACIDAD_L
+        self.indice_control_fuego = 0.0
+        self.riesgo_reignicion = 0.0
+        self._tiempo_reporte_s = 0.0
 
     def obtener_estado_especializado(self):
+        ultimo_reporte = self.reportes_operativos[-1] if self.reportes_operativos else None
         return {
             'rol': self.rol,
             'agua_litros': round(self.agua_litros, 0),
@@ -101,5 +143,9 @@ class VehiculoBomberos(VehiculoBase):
             'caudal_espuma_lpm': round(self.caudal_espuma_lpm, 0),
             'escala_desplegada': self.escala_desplegada,
             'tipo_incendio': self.tipo_incendio,
-            'efectivos_operativos': self.efectivos_operativos
+            'efectivos_operativos': self.efectivos_operativos,
+            'control_fuego': round(self.indice_control_fuego, 2),
+            'riesgo_reignicion': round(self.riesgo_reignicion, 2),
+            'reportes_emitidos': len(self.reportes_operativos),
+            'ultimo_reporte_operativo': ultimo_reporte,
         }

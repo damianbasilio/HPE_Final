@@ -307,7 +307,39 @@ class FleetManager:
         self._traza: deque = deque(maxlen=200)
 
         self.historial_costes: deque = deque(maxlen=200)
+        self._generador_demo = None
         self._crear_flotas_base(plantilla or PLANTILLA_DEFECTO)
+
+    def activar_auto_demo(self, bus=None,
+                          intervalo_min_s: float = 60.0,
+                          intervalo_max_s: float = 120.0,
+                          silencio_kafka_s: float = 90.0,
+                          max_activos: int = 6):
+        """Arranca el generador de incidentes ficticios para mantener la demo viva.
+
+        Devuelve el generador (con metodo `notificar_evento_real`) para que el
+        wrapper del bus Kafka pueda avisar cuando llegan eventos reales y el
+        generador se mantenga en silencio mientras los haya.
+        """
+        if self._generador_demo is not None:
+            return self._generador_demo
+        try:
+            from generador_incidentes import GeneradorIncidentesDemo
+        except Exception as exc:
+            logger.warning("[Flota] No se pudo importar el generador demo: %s", exc)
+            return None
+        self._generador_demo = GeneradorIncidentesDemo(
+            self, bus,
+            intervalo_min_s=intervalo_min_s,
+            intervalo_max_s=intervalo_max_s,
+            silencio_kafka_s=silencio_kafka_s,
+            max_activos=max_activos,
+        )
+        self._generador_demo.iniciar()
+        return self._generador_demo
+
+    def generador_demo(self):
+        return self._generador_demo
 
     def agregar_unidad(self, tipo: str, propulsion: str = 'combustion',
                         nombre: Optional[str] = None) -> Optional[dict]:

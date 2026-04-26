@@ -251,6 +251,14 @@ def construir_telemetria(veh) -> dict:
         },
     }
 
+_generador_demo = fleet.activar_auto_demo(
+    bus,
+    intervalo_min_s=float(os.getenv('AUTO_DEMO_MIN_S', 60)),
+    intervalo_max_s=float(os.getenv('AUTO_DEMO_MAX_S', 120)),
+    silencio_kafka_s=float(os.getenv('AUTO_DEMO_SILENCIO_S', 90)),
+    max_activos=int(os.getenv('AUTO_DEMO_MAX_ACTIVOS', 6)),
+)
+
 def _on_weather_nuevo(lectura: dict) -> None:
     """Hook Kafka: al llegar clima nuevo invalida cache y difunde factor actualizado."""
     try:
@@ -302,7 +310,14 @@ def _on_event_nuevo(evento: dict) -> None:
         logger.debug("[event_hook] %s", exc)
 
 
-bus.iniciar(on_event=_on_event_nuevo, on_weather=_on_weather_nuevo)
+if _generador_demo is not None:
+    from generador_incidentes import envolver_callback_kafka
+    bus.iniciar(
+        on_event=envolver_callback_kafka(_on_event_nuevo, _generador_demo),
+        on_weather=_on_weather_nuevo,
+    )
+else:
+    bus.iniciar(on_event=_on_event_nuevo, on_weather=_on_weather_nuevo)
 
 threading.Thread(target=bucle_flotas, daemon=True).start()
 threading.Thread(target=bucle_telemetria, daemon=True).start()

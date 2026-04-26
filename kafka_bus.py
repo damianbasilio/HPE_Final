@@ -79,6 +79,7 @@ class KafkaBus:
         self._weather_cache: Deque[dict] = deque(maxlen=max_cache)
         self._events_cache: Deque[dict] = deque(maxlen=max_cache)
         self._weather_by_station = {}
+        self._events_by_id: dict = {}
 
         self._producer: Optional[KafkaProducer] = None
         self._weather_consumer: Optional[KafkaConsumer] = None
@@ -219,9 +220,15 @@ class KafkaBus:
                             if station_id:
                                 self._weather_by_station[station_id] = valor
                         elif etiqueta == "events":
-                            logger.debug(
-                                "[Kafka] events offset=%s key=%s payload=%s",
-                                record.offset, record.key, valor,
+                            ev_id = (
+                                valor.get("id") or valor.get("event_id")
+                                or valor.get("incident_id") or valor.get("uuid")
+                                or str(record.offset)
+                            )
+                            self._events_by_id[ev_id] = valor
+                            logger.info(
+                                "[Kafka] events offset=%s key=%s ev_id=%s keys=%s",
+                                record.offset, record.key, ev_id, list(valor.keys()),
                             )
                         if hook:
                             try:

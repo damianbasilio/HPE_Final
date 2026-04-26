@@ -281,14 +281,43 @@ def _on_weather_nuevo(lectura: dict) -> None:
     except Exception as exc:
         logger.debug("[weather_hook] %s", exc)
 
+
+def _on_event_nuevo(evento: dict) -> None:
+    """Hook Kafka: al llegar evento real lo procesa y difunde al frontend inmediatamente."""
+    try:
+        inc_id = fleet.manejar_evento(evento)
+        if not inc_id:
+            return
+        from socketio_server import socketio as _sio, conexiones as _conx, lock_conexiones as _lock, SALA_TODOS
+        if _sio is None:
+            return
+        with _lock:
+            hay_clientes = bool(_conx)
+        if not hay_clientes:
+            return
+        from socketio_server import _leer_clima_para_broadcast
+        factor_clima, clima_actual = _leer_clima_para_broadcast()
+        _sio.emit('actualizacion_flotas', {
+            "vehiculos": fleet.estado_broadcast(),
+            "incidentes": fleet.listado_incidentes(),
+            "timestamp": datetime.now().isoformat(),
+            "factor_clima": factor_clima,
+            "clima_actual": clima_actual,
+        }, room=SALA_TODOS)
+        logger.info("[event_hook] Evento %s difundido al frontend (%d incidentes activos)",
+                    inc_id, len(fleet.listado_incidentes()))
+    except Exception as exc:
+        logger.debug("[event_hook] %s", exc)
+
+
 if _generador_demo is not None:
     from generador_incidentes import envolver_callback_kafka
     bus.iniciar(
-        on_event=envolver_callback_kafka(fleet.manejar_evento, _generador_demo),
+        on_event=envolver_callback_kafka(_on_event_nuevo, _generador_demo),
         on_weather=_on_weather_nuevo,
     )
 else:
-    bus.iniciar(on_event=fleet.manejar_evento, on_weather=_on_weather_nuevo)
+    bus.iniciar(on_event=_on_event_nuevo, on_weather=_on_weather_nuevo)
 
 threading.Thread(target=bucle_flotas, daemon=True).start()
 threading.Thread(target=bucle_telemetria, daemon=True).start()

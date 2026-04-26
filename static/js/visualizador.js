@@ -485,7 +485,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!chatBox) return;
     const div = document.createElement('div');
     div.className = `chat-msg ${role}`;
-    div.textContent = text;
+    if (role === 'bot' && typeof marked !== 'undefined') {
+      div.innerHTML = marked.parse(text);
+    } else {
+      div.textContent = text;
+    }
     chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
   }

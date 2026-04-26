@@ -316,18 +316,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   
 
-  document.querySelectorAll('[data-apoyo]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const tipo = btn.dataset.apoyo;
-      const seleccion = panel.unidadActual();
-      socket.emit('control_incidente', {
-        accion: 'apoyo',
-        tipo,
-        vehiculo_id: seleccion ? seleccion.id : null,
-      });
-    });
-  });
-
   const botonMensaje = document.getElementById('btn-mensaje-central');
   if (botonMensaje) {
     botonMensaje.addEventListener('click', () => {
@@ -382,7 +370,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!chatBox) return;
     const div = document.createElement('div');
     div.className = `chat-msg ${role}`;
-    div.textContent = text;
+    if (role === 'bot' && typeof marked !== 'undefined') {
+      div.innerHTML = marked.parse(text);
+    } else {
+      div.textContent = text;
+    }
     chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
   }

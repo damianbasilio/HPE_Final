@@ -4,12 +4,13 @@
 
 {% block head_extra %}
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=7">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=9">
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
           onerror="this.onerror=null;var s=document.createElement('script');s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';document.head.appendChild(s);"></script>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="{{ url_for('static', filename='js/panel_flota.js') }}?v=7"></script>
-  <script src="{{ url_for('static', filename='js/visualizador.js') }}?v=7"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
+  <script src="{{ url_for('static', filename='js/panel_flota.js') }}?v=9"></script>
+  <script src="{{ url_for('static', filename='js/visualizador.js') }}?v=9"></script>
 {% endblock %}
 
 {% block content %}

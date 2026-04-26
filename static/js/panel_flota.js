@@ -32,7 +32,6 @@ class PanelFlota {
     this.rutas = new Map();
     this.destinoMarcadores = new Map();   // pin de destino del incidente
     this.rastros = new Map();
-    this.incidenteMarcadores = new Map();
     this.flota = [];
     this.incidentes = [];
     this.seleccionado = null;
@@ -107,7 +106,6 @@ class PanelFlota {
       }
     }
 
-    this._dibujarIncidentes();
   }
 
   _dibujarUnidad(unidad) {
@@ -219,40 +217,6 @@ class PanelFlota {
     } else {
       destMarker.setLatLng(destPos);
       destMarker.setIcon(iconoDestino);
-    }
-  }
-
-  _dibujarIncidentes() {
-    const ids = new Set();
-    for (const inc of this.incidentes) {
-      if (inc.status === 'resolved' || inc.status === 'cancelled') continue;
-      if (inc.lat == null || inc.lon == null) continue;
-      ids.add(inc.incident_id);
-
-      const color = SEVERIDAD_COLOR[inc.severity] || '#f59e0b';
-      let marker = this.incidenteMarcadores.get(inc.incident_id);
-      if (!marker) {
-        marker = L.circleMarker([inc.lat, inc.lon], {
-          radius: 9,
-          color,
-          weight: 2,
-          fillColor: color,
-          fillOpacity: 0.25,
-        }).addTo(this.mapa);
-        marker.bindTooltip(`${inc.title || inc.incident_type} (${inc.severity || 'medium'})`,
-                           { direction: 'top' });
-        this.incidenteMarcadores.set(inc.incident_id, marker);
-      } else {
-        marker.setLatLng([inc.lat, inc.lon]);
-        marker.setStyle({ color, fillColor: color });
-      }
-    }
-
-    for (const id of [...this.incidenteMarcadores.keys()]) {
-      if (!ids.has(id)) {
-        this.mapa.removeLayer(this.incidenteMarcadores.get(id));
-        this.incidenteMarcadores.delete(id);
-      }
     }
   }
 

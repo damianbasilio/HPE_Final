@@ -139,10 +139,35 @@ class SimuladorGPS:
         }
 
     def obtener_coordenadas_ligero(self):
-
         return {
             'latitud': round(self.latitud, 6),
             'longitud': round(self.longitud, 6),
             'progreso_ruta': round(self.progreso_ruta, 4),
             'indice_ruta': self.indice_ruta
         }
+
+    def ruta_restante_comprimida(self, max_puntos: int = 60) -> list:
+        """Devuelve los puntos restantes de la ruta desde la posicion actual.
+
+        Antepone la posicion GPS real como primer punto para que la linea
+        en el mapa arranque exactamente donde esta el vehiculo.
+        Decima si hay mas de `max_puntos` para no saturar el WebSocket.
+        """
+        if not self.ruta or len(self.ruta) < 2:
+            return []
+
+        # Puntos desde el indice actual hasta el final
+        restantes = self.ruta[self.indice_ruta:]
+        if not restantes:
+            return []
+
+        # Primero la posicion real interpolada del vehiculo
+        inicio = [round(self.latitud, 5), round(self.longitud, 5)]
+        puntos = [inicio] + [[round(p[0], 5), round(p[1], 5)] for p in restantes]
+
+        # Decimacion uniforme si superamos el tope
+        if len(puntos) > max_puntos:
+            paso = len(puntos) / max_puntos
+            puntos = [puntos[int(i * paso)] for i in range(max_puntos - 1)] + [puntos[-1]]
+
+        return puntos

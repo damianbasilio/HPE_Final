@@ -742,76 +742,106 @@
 .cost-feedback.error { color: #f87171; }
 
 /* ============================================================
-   Banner de consola por rol (operador / visualizador).
-   Mantiene la misma identidad visual del dashboard: misma paleta
-   oscura, mismas tipografias, mismo border-radius. Lo unico que
-   cambia entre roles es el color de acento del banner.
+   Barra de consola por rol — integrada como franja superior del
+   dashboard. Altura minima, sin card box, comparte la paleta
+   oscura y la tipografia mono del resto del panel.
    ============================================================ */
 
 .dt-console-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 10px 16px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-left-width: 3px;
+  gap: 12px;
+  padding: 6px 14px 6px 10px;
+  border-radius: 8px 8px 0 0;
+  background: rgba(255, 255, 255, 0.025);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-left: 3px solid transparent;
+  margin-bottom: -4px;
   flex-wrap: wrap;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Trazo luminoso horizontal en el borde superior */
+.dt-console-banner::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, currentColor 35%, transparent);
+  opacity: 0.18;
 }
 
 .dt-console-banner .banner-rol {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Icono pequeño de terminal antes del tag */
+.dt-console-banner .banner-rol::before {
+  content: '›_';
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  opacity: 0.35;
+  letter-spacing: -0.04em;
 }
 
 .dt-console-banner .banner-rol-tag {
   font-family: var(--font-mono, monospace);
-  font-size: 0.78rem;
-  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
   font-weight: 700;
   text-transform: uppercase;
+  line-height: 1;
 }
 
 .dt-console-banner .banner-rol-sub {
-  font-size: 0.72rem;
+  font-size: 0.67rem;
   color: var(--text-muted, #94a3b8);
+  letter-spacing: 0.02em;
 }
 
 .dt-console-banner .banner-rol-perms {
   font-family: var(--font-mono, monospace);
-  font-size: 0.66rem;
-  letter-spacing: 0.08em;
+  font-size: 0.62rem;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  padding: 3px 9px;
-  border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
   color: var(--text-muted, #94a3b8);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
 }
 
+/* ---- Operador: azul acento ---- */
 .banner-operador {
-  border-left-color: #5b8dff;
-  box-shadow: inset 0 0 0 1px rgba(91, 141, 255, 0.08);
-}
-.banner-operador .banner-rol-tag { color: #a8c1ff; }
-.banner-operador .banner-rol-perms {
-  border-color: rgba(91, 141, 255, 0.45);
+  border-left-color: #4f7fff;
   color: #a8c1ff;
-  background: rgba(91, 141, 255, 0.08);
+}
+.banner-operador::before { color: #4f7fff; opacity: 1; }
+.banner-operador .banner-rol-tag { color: #b8cfff; }
+.banner-operador .banner-rol-sub { color: rgba(168,193,255,0.55); }
+.banner-operador .banner-rol-perms {
+  border-color: rgba(79,127,255,0.40);
+  color: #96b6ff;
+  background: rgba(79,127,255,0.08);
 }
 
+/* ---- Visualizador: cian acento ---- */
 .banner-visualizador {
   border-left-color: var(--accent, #00e5c4);
-  box-shadow: inset 0 0 0 1px rgba(0, 229, 196, 0.08);
-}
-.banner-visualizador .banner-rol-tag { color: #7df4dc; }
-.banner-visualizador .banner-rol-perms {
-  border-color: rgba(0, 229, 196, 0.45);
   color: #7df4dc;
-  background: rgba(0, 229, 196, 0.08);
+}
+.banner-visualizador::before { color: var(--accent, #00e5c4); opacity: 1; }
+.banner-visualizador .banner-rol-tag { color: #8ef8e2; }
+.banner-visualizador .banner-rol-sub { color: rgba(125,244,220,0.50); }
+.banner-visualizador .banner-rol-perms {
+  border-color: rgba(0,229,196,0.38);
+  color: #6ae8d3;
+  background: rgba(0,229,196,0.07);
 }
 
 /* Separador visual dentro de la barra de acciones del operador */

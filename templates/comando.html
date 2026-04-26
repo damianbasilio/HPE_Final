@@ -4,24 +4,22 @@
 
 {% block head_extra %}
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=5">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=6">
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"
           onerror="this.onerror=null;var s=document.createElement('script');s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';document.head.appendChild(s);"></script>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="{{ url_for('static', filename='js/panel_flota.js') }}?v=5"></script>
-  <script src="{{ url_for('static', filename='js/visualizador.js') }}?v=5"></script>
+  <script src="{{ url_for('static', filename='js/panel_flota.js') }}?v=6"></script>
+  <script src="{{ url_for('static', filename='js/visualizador.js') }}?v=6"></script>
 {% endblock %}
 
 {% block content %}
 <div class="dt-dashboard dt-dashboard-visualizador" data-consola="visualizador">
   <header class="dt-console-banner banner-visualizador">
     <div class="banner-rol">
-      <span class="banner-rol-tag">CONSOLA · VISUALIZADOR</span>
-      <span class="banner-rol-sub">Solo consulta y monitorizacion · sin control directo</span>
+      <span class="banner-rol-tag">VISUALIZADOR</span>
+      <span class="banner-rol-sub">Solo consulta y monitorizacion &mdash; sin control directo</span>
     </div>
-    <div class="banner-rol-meta">
-      <span class="banner-rol-perms">Permisos: lectura, replay y NLP</span>
-    </div>
+    <span class="banner-rol-perms">lectura &middot; replay &middot; NLP</span>
   </header>
 
   <header class="dt-summary">

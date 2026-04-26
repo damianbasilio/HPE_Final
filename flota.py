@@ -817,24 +817,39 @@ class FleetManager:
         return veh.en_camino or veh.en_escena or veh.reabasteciendo
 
     def _activar_intervencion(self, unidad: VehiculoBase, incidente: dict) -> str:
-        # Vehicle is already on a road (spawned on road network).
-        # Snap the incident destination to the nearest road node using the
-        # graph (fast, no HTTP) so the routing engine gets a reachable target.
         origen = (unidad.gps.latitud, unidad.gps.longitud)
         destino_raw = (incidente['lat'], incidente['lon'])
-        try:
-            destino = snap_a_carretera(destino_raw[0], destino_raw[1])
-        except Exception:
-            destino = destino_raw
 
-        ruta = []
-        try:
-            ruta = generar_ruta(origen, destino) or []
-        except Exception as exc:
-            logger.warning("Error generando ruta para %s: %s", incidente['incident_id'], exc)
+        # Los drones vuelan en linea recta: no necesitan routing por carretera.
+        es_dron = (getattr(unidad, 'TIPO', '') == 'dron')
 
-        distancia_km = obtener_distancia_total_ruta(ruta) if ruta else 0.0
-        velocidad_nominal = max(40, min(unidad.velocidad_max_unidad, 110))
+        if es_dron:
+            # Ruta directa [origen, destino] — linea aerea.
+            ruta = [list(origen), list(destino_raw)]
+            distancia_km = sum(
+                math.hypot(
+                    (ruta[i+1][0] - ruta[i][0]) * 111.32,
+                    (ruta[i+1][1] - ruta[i][1]) * 111.32 * math.cos(math.radians(ruta[i][0]))
+                )
+                for i in range(len(ruta) - 1)
+            )
+        else:
+            try:
+                destino = snap_a_carretera(destino_raw[0], destino_raw[1])
+            except Exception:
+                destino = destino_raw
+            ruta = []
+            try:
+                ruta = generar_ruta(origen, destino) or []
+            except Exception as exc:
+                logger.warning("Error generando ruta para %s: %s", incidente['incident_id'], exc)
+            distancia_km = obtener_distancia_total_ruta(ruta) if ruta else 0.0
+
+        # Velocidad nominal de emergencia: se usa solo para calcular ETA.
+        # Se respeta el maximo real del vehiculo (no se capea artificialmente
+        # a 110 km/h como antes; las unidades de policia pueden hacer 180).
+        # Factor de seguridad 0.75 = conduccion agresiva pero no irreal.
+        velocidad_nominal = max(60, int(unidad.velocidad_max_unidad * 0.75))
         tiempo_viaje_s = int((distancia_km / velocidad_nominal) * 3600) if distancia_km > 0 else 60
 
         factor = max(0.2, min(1.5, float(getattr(unidad, 'factor_entorno', 1.0) or 1.0)))
@@ -903,6 +918,17 @@ class FleetManager:
     def _construir_modificadores(self, unidad: VehiculoBase, incidente: dict,
                                   intensidad: float, tiempo_viaje_s: int,
                                   tiempo_escena_s: int) -> dict:
+        # aceleracion_max en km/h por segundo de simulacion.
+        # Un vehiculo de emergencia real hace 0-100 en ~8-10s → ~11 km/h/s.
+        # Drones: mas agiles en arranque (~15 km/h/s).
+        tipo_u = getattr(unidad, 'TIPO', '')
+        if tipo_u == 'dron':
+            acel = 18
+        elif intensidad >= 0.7:
+            acel = 12
+        else:
+            acel = 7
+
         mods = {
             'tiempo_viaje': tiempo_viaje_s,
             'tiempo_escena': tiempo_escena_s,
@@ -911,7 +937,7 @@ class FleetManager:
             'consumo_factor': 1.2 if intensidad >= 0.7 else 1.0,
             'temp_factor': 1.3 if intensidad >= 0.7 else 1.0,
             'desgaste_factor': 1.5 if intensidad >= 0.7 else 1.0,
-            'aceleracion_max': 8 if intensidad >= 0.7 else 5,
+            'aceleracion_max': acel,
         }
         tipo_inc = (incidente.get('incident_type') or '').lower()
 

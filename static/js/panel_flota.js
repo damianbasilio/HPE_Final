@@ -24,10 +24,11 @@ class PanelFlota {
     this.onSeleccion = onSeleccion;
     this.mapa = null;
     this.tilesLayer = null;
-    this.marcadores = new Map();          
-    this.rutas = new Map();               
-    this.rastros = new Map();             
-    this.incidenteMarcadores = new Map(); 
+    this.marcadores = new Map();
+    this.rutas = new Map();
+    this.destinoMarcadores = new Map();   // pin de destino del incidente
+    this.rastros = new Map();
+    this.incidenteMarcadores = new Map();
     this.flota = [];
     this.incidentes = [];
     this.seleccionado = null;
@@ -90,10 +91,12 @@ class PanelFlota {
       this._dibujarUnidad(u);
     }
 
+    // Limpiar marcadores de vehiculos que ya no existen
     for (const id of [...this.marcadores.keys()]) {
       if (!idsFlota.has(id)) {
         this.mapa.removeLayer(this.marcadores.get(id));
         this.marcadores.delete(id);
+        this._limpiarRutaUnidad(id);
       }
     }
 
@@ -144,31 +147,71 @@ class PanelFlota {
     }
   }
 
+  _limpiarRutaUnidad(id) {
+    const r = this.rutas.get(id);
+    if (r) { this.mapa.removeLayer(r); this.rutas.delete(id); }
+    const d = this.destinoMarcadores.get(id);
+    if (d) { this.mapa.removeLayer(d); this.destinoMarcadores.delete(id); }
+  }
+
   _dibujarRutaIncidente(unidad) {
+    const esSeleccionado = (unidad.id === this.seleccionado);
     const inc = unidad.incidente;
-    if (!inc || inc.lat == null || inc.lon == null) {
-      const ruta = this.rutas.get(unidad.id);
-      if (ruta) {
-        this.mapa.removeLayer(ruta);
-        this.rutas.delete(unidad.id);
-      }
+    const enCamino = unidad.escenario && unidad.escenario.en_camino;
+
+    // Ocultar ruta y destino si la unidad no esta seleccionada o no va hacia un incidente
+    if (!esSeleccionado || !inc || inc.lat == null || inc.lon == null || !enCamino) {
+      this._limpiarRutaUnidad(unidad.id);
       return;
     }
-    const gps = unidad.gps || {};
-    if (gps.latitud == null || gps.longitud == null) return;
-    const trazo = [[gps.latitud, gps.longitud], [inc.lat, inc.lon]];
-    let ruta = this.rutas.get(unidad.id);
-    if (!ruta) {
-      ruta = L.polyline(trazo, {
-        color: SEVERIDAD_COLOR[inc.severity] || '#f59e0b',
-        weight: 2,
-        opacity: 0.65,
-        dashArray: '6, 8',
-      }).addTo(this.mapa);
-      this.rutas.set(unidad.id, ruta);
+
+    const color = SEVERIDAD_COLOR[inc.severity] || '#f59e0b';
+    const esDron = (unidad.tipo === 'dron');
+
+    // --- Polyline de ruta ---
+    const puntosRuta = unidad.ruta_restante;
+    let trazo;
+    if (puntosRuta && puntosRuta.length >= 2) {
+      trazo = puntosRuta;
     } else {
-      ruta.setLatLngs(trazo);
-      ruta.setStyle({ color: SEVERIDAD_COLOR[inc.severity] || '#f59e0b' });
+      // Fallback linea recta si no llega ruta del backend
+      const gps = unidad.gps || {};
+      if (gps.latitud == null) return;
+      trazo = [[gps.latitud, gps.longitud], [inc.lat, inc.lon]];
+    }
+
+    let rutaLayer = this.rutas.get(unidad.id);
+    const estiloRuta = esDron
+      ? { color, weight: 2, opacity: 0.75, dashArray: '4, 10' }
+      : { color, weight: 3, opacity: 0.85, dashArray: null };
+
+    if (!rutaLayer) {
+      rutaLayer = L.polyline(trazo, estiloRuta).addTo(this.mapa);
+      this.rutas.set(unidad.id, rutaLayer);
+    } else {
+      rutaLayer.setLatLngs(trazo);
+      rutaLayer.setStyle(estiloRuta);
+    }
+
+    // --- Pin de destino ---
+    const destPos = [inc.lat, inc.lon];
+    const iconoDestino = L.divIcon({
+      className: '',
+      html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};
+             border:2px solid #fff;box-shadow:0 0 8px ${color};opacity:0.95"></div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+    let destMarker = this.destinoMarcadores.get(unidad.id);
+    if (!destMarker) {
+      destMarker = L.marker(destPos, { icon: iconoDestino, zIndexOffset: 100 })
+        .bindTooltip(`${inc.title || inc.incident_type || 'Incidente'} · ${inc.severity || 'medium'}`,
+                     { direction: 'top', offset: [0, -8] })
+        .addTo(this.mapa);
+      this.destinoMarcadores.set(unidad.id, destMarker);
+    } else {
+      destMarker.setLatLng(destPos);
+      destMarker.setIcon(iconoDestino);
     }
   }
 
@@ -207,7 +250,21 @@ class PanelFlota {
   }
 
   seleccionarUnidad(id) {
+    const anterior = this.seleccionado;
     this.seleccionado = id;
+
+    // Ocultar ruta de la unidad previamente seleccionada
+    if (anterior && anterior !== id) {
+      const antUnidad = this.flota.find((v) => v.id === anterior);
+      if (antUnidad) this._dibujarRutaIncidente(antUnidad);
+    }
+
+    // Mostrar ruta de la nueva unidad seleccionada
+    if (id) {
+      const nuevaUnidad = this.flota.find((v) => v.id === id);
+      if (nuevaUnidad) this._dibujarRutaIncidente(nuevaUnidad);
+    }
+
     if (typeof this.onSeleccion === 'function') {
       this.onSeleccion(id);
     }

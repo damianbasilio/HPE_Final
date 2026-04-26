@@ -729,8 +729,10 @@ class VehiculoBase:
         if velocidad_objetivo is not None:
             self.velocidad_objetivo = min(tope_unidad, max(0, velocidad_objetivo))
         else:
+            # En emergencias de alta intensidad se puede usar hasta el 90 % del
+            # maximo del vehiculo (sin capear artificialmente a 150).
             base = 30
-            tope = min(150, tope_unidad)
+            tope = min(tope_unidad, int(tope_unidad * (0.75 + intensidad * 0.20)))
             self.velocidad_objetivo = base + (intensidad * (tope - base))
 
             if intensidad >= 0.7:
@@ -893,6 +895,12 @@ class VehiculoBase:
                        (str(activo).lower() != self.ESTADO_BASE.lower() and
                         duracion_seg is not None and transcurrido < duracion_seg))
 
+        # Ruta restante: solo cuando el vehiculo va hacia un incidente.
+        # Los drones la tienen como 2 puntos (linea recta aerea); el resto
+        # como polyline OSRM. Se incluye aqui para que el mapa pueda dibujar
+        # la trayectoria real en lugar de una linea recta.
+        ruta_restante = self.gps.ruta_restante_comprimida() if self.en_camino else []
+
         return {
             "tipo": self.TIPO,
             "propulsion": self.propulsion,
@@ -905,6 +913,7 @@ class VehiculoBase:
             "velocidad": round(self.velocidad, 1),
             "factor_entorno": round(float(getattr(self, 'factor_entorno', 1.0) or 1.0), 2),
             "gps": self.gps.obtener_coordenadas_ligero(),
+            "ruta_restante": ruta_restante,
             "escenario": {
                 "activo": activo,
                 "distancia_recorrida": distancia,

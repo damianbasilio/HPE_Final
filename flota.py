@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from config import INTERVALO_ACTUALIZACION
+from sabotaje import guardian as _guardian_sabotaje
 from costos import (
     SLA_RESPUESTA_SEG,
     clasificar_coste,
@@ -331,6 +332,16 @@ class FleetManager:
                 veh.actualizar_simulacion(delta_time=dt)
                 self._sincronizar_incidente(veh)
         self._despachar_cola()
+
+        # Analisis de sabotaje post-tick (fuera del lock para no bloquear).
+        # Se ejecuta en el mismo hilo del bucle; cada regla es O(1) por vehiculo.
+        try:
+            with self._lock:
+                vehiculos_snap = list(self.vehiculos.values())
+            for veh in vehiculos_snap:
+                _guardian_sabotaje.analizar(veh)
+        except Exception as _exc:
+            logger.debug("[Sabotaje] Error en analisis post-tick: %s", _exc)
 
     def loop_actualizacion(self, factor_entorno_cb=None) -> None:
         while True:

@@ -102,6 +102,39 @@ DIST_MAX_RASTRO = float(os.getenv('DIST_MAX_RASTRO', 0.5))
 
 CACHE_ESTATICOS = int(os.getenv('CACHE_ESTATICOS', 31536000))
 
+# ---------------------------------------------------------------------------
+# Deteccion de sabotaje — umbrales operativos
+# ---------------------------------------------------------------------------
+
+# Coordenadas: cuadro delimitador ampliado de Aruba (grados decimales).
+# Cualquier posicion GPS fuera de este rectangulo se considera imposible.
+SABOTAJE_LAT_MIN = float(os.getenv('SABOTAJE_LAT_MIN', 12.3))
+SABOTAJE_LAT_MAX = float(os.getenv('SABOTAJE_LAT_MAX', 12.8))
+SABOTAJE_LON_MIN = float(os.getenv('SABOTAJE_LON_MIN', -70.2))
+SABOTAJE_LON_MAX = float(os.getenv('SABOTAJE_LON_MAX', -69.7))
+
+# Velocidad fisica maxima que puede alcanzar cualquier vehiculo (km/h).
+# Saltar este valor es fisicamente imposible para los tipos registrados.
+SABOTAJE_VELOCIDAD_MAX_FISICA = float(os.getenv('SABOTAJE_VELOCIDAD_MAX_FISICA', 200.0))
+
+# Salto de posicion maximo en un tick de simulacion (km).
+# Un vehiculo no puede teleportarse; superar este delta indica datos falsos.
+SABOTAJE_SALTO_GPS_MAX_KM = float(os.getenv('SABOTAJE_SALTO_GPS_MAX_KM', 2.0))
+
+# Temperatura del motor: rango fisicamente coherente (°C).
+SABOTAJE_TEMP_MIN = float(os.getenv('SABOTAJE_TEMP_MIN', 0.0))
+SABOTAJE_TEMP_MAX = float(os.getenv('SABOTAJE_TEMP_MAX', 150.0))
+
+# Combustible: rango 0-100 %.
+SABOTAJE_COMBUSTIBLE_MIN = float(os.getenv('SABOTAJE_COMBUSTIBLE_MIN', 0.0))
+SABOTAJE_COMBUSTIBLE_MAX = float(os.getenv('SABOTAJE_COMBUSTIBLE_MAX', 100.0))
+
+# Saturacion de alertas: numero maximo de anomalias acumuladas en la ventana
+# deslizante antes de elevar nivel CRITICO (nivel ADVERTENCIA a la mitad).
+SABOTAJE_VENTANA_S = int(os.getenv('SABOTAJE_VENTANA_S', 60))
+SABOTAJE_UMBRAL_WARN = int(os.getenv('SABOTAJE_UMBRAL_WARN', 3))
+SABOTAJE_UMBRAL_CRITICO = int(os.getenv('SABOTAJE_UMBRAL_CRITICO', 6))
+
 _cors_raw = os.getenv('CORS_ORIGENES', '*')
 CORS_ORIGENES = _cors_raw if _cors_raw == '*' else [o.strip() for o in _cors_raw.split(',')]
 

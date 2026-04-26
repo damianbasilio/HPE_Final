@@ -36,6 +36,7 @@ from costos import (
 from entorno import configurar_bus, obtener_contexto_entorno_completo
 from flota import FleetManager
 from historial_clinico import obtener_historial, obtener_contexto_mision
+from sabotaje import guardian as _guardian_sabotaje
 from ia import responder_chat
 from inventario_aruba import InventarioAruba
 from kafka_bus import KafkaBus
@@ -268,6 +269,7 @@ def proteger_vistas():
         'costs_summary', 'costs_rates', 'costs_incidents', 'costs_vehicle',
         'costs_estimate',
         'vehicle_historial', 'vehicle_contexto_mision',
+        'security_sabotaje', 'security_sabotaje_vehiculo', 'security_sabotaje_reset',
     }
     if request.endpoint in public_endpoints or request.path.startswith('/static/'):
         return
@@ -748,6 +750,94 @@ def costs_estimate():
             "error": f"Tarifa no encontrada para {tipo}/{energia}"
         }), 404
     return jsonify(estimacion)
+
+
+# ---------------------------------------------------------------------------
+# Endpoints de seguridad / deteccion de sabotaje
+# ---------------------------------------------------------------------------
+
+@app.route('/security/sabotage')
+def security_sabotaje():
+    """Estado global del sistema de deteccion de sabotaje.
+
+    Devuelve el resumen de todos los gemelos digitales monitorizados con
+    sus niveles de riesgo (LIMPIO / ADVERTENCIA / CRITICO), contadores de
+    anomalias y la lista de alertas activas.
+
+    Query params:
+      - nivel=CRITICO|ADVERTENCIA  filtra por nivel (opcional).
+    """
+    estado = _guardian_sabotaje.estado_global()
+    filtro = (request.args.get('nivel') or '').upper()
+    if filtro in ('CRITICO', 'ADVERTENCIA', 'LIMPIO'):
+        estado['alertas_activas'] = [
+            a for a in estado['alertas_activas'] if a.get('nivel') == filtro
+        ]
+        estado['vehiculos'] = {
+            vid: ev for vid, ev in estado['vehiculos'].items()
+            if ev.get('nivel') == filtro
+        }
+    return jsonify(estado)
+
+
+@app.route('/security/sabotage/<vehicle_id>')
+def security_sabotaje_vehiculo(vehicle_id):
+    """Estado de deteccion de sabotaje de un vehiculo especifico.
+
+    Incluye nivel actual, anomalias en ventana deslizante, historial de
+    las ultimas 10 anomalias y si el gemelo esta en modo VERIFICACION.
+    """
+    ev = _guardian_sabotaje.estado_vehiculo(vehicle_id)
+    if ev is None:
+        veh = fleet.obtener_vehiculo(vehicle_id)
+        if not veh:
+            return jsonify({
+                "detail": [{
+                    "loc": ["path", "vehicle_id"],
+                    "msg": "Vehicle not found",
+                    "type": "value_error.not_found",
+                    "input": vehicle_id,
+                }]
+            }), 422
+        return jsonify({
+            "vehicle_id": vehicle_id,
+            "nivel": "LIMPIO",
+            "en_verificacion": False,
+            "anomalias_en_ventana": 0,
+            "total_anomalias": 0,
+            "nota": "Vehiculo registrado pero aun no analizado (sin ticks).",
+        })
+    return jsonify(ev)
+
+
+@app.route('/security/sabotage/<vehicle_id>/reset', methods=['POST'])
+def security_sabotaje_reset(vehicle_id):
+    """Reinicia el historial de anomalias de un vehiculo.
+
+    Solo accesible para operadores autenticados. Util tras confirmar que
+    una anomalia era un falso positivo o tras corregir un problema real.
+    """
+    if not session.get('autenticado') or session.get('rol') != 'operador':
+        return jsonify({"error": "No autorizado: se requiere rol operador"}), 403
+
+    veh = fleet.obtener_vehiculo(vehicle_id)
+    if not veh:
+        return jsonify({
+            "detail": [{
+                "loc": ["path", "vehicle_id"],
+                "msg": "Vehicle not found",
+                "type": "value_error.not_found",
+                "input": vehicle_id,
+            }]
+        }), 422
+
+    ok = _guardian_sabotaje.reset_vehiculo(vehicle_id)
+    return jsonify({
+        "ok": ok,
+        "vehicle_id": vehicle_id,
+        "mensaje": "Historial de anomalias reiniciado." if ok else "Sin historial previo.",
+    })
+
 
 @app.route('/simulations')
 def list_simulations():

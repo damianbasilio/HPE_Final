@@ -233,6 +233,11 @@ class SimulacionReplay(_SimulacionBase):
         self._pause = threading.Event()
         self._lock = threading.Lock()
 
+        # Offsets de fin de particion en el momento de crear el consumer.
+        # Cuando el consumer haya alcanzado estos offsets habremos leido todo
+        # el historico que existia al arrancar el replay.
+        self._fin_historico: dict = {}
+
         self._consumer_thread = threading.Thread(
             target=self._loop_consumer, daemon=True, name=f"replay-cons-{sim_id}",
         )
@@ -306,17 +311,28 @@ class SimulacionReplay(_SimulacionBase):
     # Consumidor Kafka
 
     def _crear_consumer(self):
+        """Crea y configura el KafkaConsumer del replay.
+
+        1. Asigna explicitamente las particiones (sin group_id para no
+           interferir con los consumidores de produccion).
+        2. Usa offsets_for_times para posicionarse exactamente en el offset
+           correspondiente a `started_at` en cada particion.
+        3. Captura los end-offsets actuales para saber cuando hemos agotado
+           el historico (ver `_ha_alcanzado_fin_historico`).
+        """
         from kafka import KafkaConsumer, TopicPartition
         from kafka_bus import _kafka_common_config
 
+        # Sin group_id: el consumer no hace commit ni interfiere con la
+        # posicion de los consumidores de produccion.
         consumer = KafkaConsumer(
             group_id=None,
             enable_auto_commit=False,
             value_deserializer=lambda v: json.loads(v.decode('utf-8', errors='replace')),
-            consumer_timeout_ms=0,
             session_timeout_ms=15000,
-            request_timeout_ms=40000,
+            request_timeout_ms=60000,
             api_version_auto_timeout_ms=10000,
+            fetch_max_wait_ms=500,
             **_kafka_common_config(),
         )
 
@@ -335,13 +351,27 @@ class SimulacionReplay(_SimulacionBase):
             consumer.close()
             raise RuntimeError(
                 f"No hay particiones disponibles para los topics {self.topics}. "
-                "Comprueba que el bus Kafka esta accesible."
+                "Comprueba que el bus Kafka esta accesible y los topics existen."
             )
 
         consumer.assign(tps)
 
-        # Posicionar el consumidor por timestamp para no leer eventos
-        # anteriores al started_at (la organizacion conserva todo el historico).
+        # ---------------------------------------------------------------
+        # Capturar end-offsets ANTES de hacer seek para saber hasta donde
+        # llega el historico disponible en este momento.
+        try:
+            fin = consumer.end_offsets(tps)
+            self._fin_historico = {tp: off for tp, off in fin.items() if off > 0}
+        except Exception as exc:
+            logger.warning("[%s] end_offsets fallo, se usara deteccion por idle: %s",
+                           self.sim_id, exc)
+            self._fin_historico = {}
+
+        # ---------------------------------------------------------------
+        # Posicionar el consumidor por timestamp (filtrando por started_at).
+        # El topic aruba.weather y aruba.events tienen retencion total del
+        # historico desde el 1 de abril, por lo que offsets_for_times
+        # devuelve el primer offset >= started_at en cada particion.
         ts_ms = int(self.started_at.timestamp() * 1000)
         try:
             offsets = consumer.offsets_for_times({tp: ts_ms for tp in tps})
@@ -350,20 +380,43 @@ class SimulacionReplay(_SimulacionBase):
                            self.sim_id, exc)
             offsets = {}
 
+        particiones_con_datos = 0
         for tp in tps:
             meta = (offsets or {}).get(tp)
             if meta is not None and getattr(meta, 'offset', None) is not None:
                 consumer.seek(tp, meta.offset)
+                particiones_con_datos += 1
             else:
-                # No hay registros en o despues del timestamp pedido.
-                # Ir al final para no leer mensajes anteriores.
+                # Sin mensajes en o despues de started_at: ir al final para
+                # no procesar mensajes fuera del rango.
                 consumer.seek_to_end(tp)
 
         logger.info(
-            "[%s] Consumer replay listo: %d particiones, seek a %s (%d ms)",
-            self.sim_id, len(tps), self.started_at.isoformat(), ts_ms,
+            "[%s] Consumer replay listo: %d particiones totales, "
+            "%d con datos desde %s, end_offsets=%s",
+            self.sim_id, len(tps), particiones_con_datos,
+            self.started_at.isoformat(),
+            {str(tp): off for tp, off in self._fin_historico.items()},
         )
         return consumer
+
+    def _ha_alcanzado_fin_historico(self, consumer) -> bool:
+        """True cuando el consumer ha leido todos los mensajes historicos.
+
+        Compara la posicion actual de cada particion con el end-offset capturado
+        al inicio del replay. Si no tenemos end-offsets (broker no lo soporto)
+        devuelve False y la deteccion cae al mecanismo de idle por tiempo.
+        """
+        if not self._fin_historico:
+            return False
+        try:
+            for tp, end_off in self._fin_historico.items():
+                pos = consumer.position(tp)
+                if pos < end_off:
+                    return False
+            return True
+        except Exception:
+            return False
 
     def _loop_consumer(self) -> None:
         consumer = None
@@ -376,9 +429,15 @@ class SimulacionReplay(_SimulacionBase):
             self.estado = "error"
             return
 
+        # Contador de polls vacios consecutivos para la deteccion de idle
+        # cuando no tenemos end_offsets del broker.
+        _IDLE_POLLS_MAX = 20   # 20 * 1 s = 20 s de silencio => historico agotado
+        idle_count = 0
+
         try:
-            ralenti = 0
             while not self._stop.is_set():
+                # El consumer para de producir datos cuando el reloj virtual
+                # ha superado el end_at pedido por el usuario.
                 if self.end_at and self._virtual_now >= self.end_at:
                     break
 
@@ -387,20 +446,32 @@ class SimulacionReplay(_SimulacionBase):
                 except Exception as exc:
                     logger.warning("[%s] poll fallo: %s", self.sim_id, exc)
                     self._consumer_error = repr(exc)
-                    time.sleep(1.0)
+                    time.sleep(2.0)
                     continue
 
                 if not polled:
-                    ralenti += 1
-                    # Si ya hemos consumido todo el histórico y hace rato que
-                    # no entran mensajes, marcamos consumer_done para que
-                    # el player pueda decidir si terminar.
-                    if ralenti >= 5:
-                        self._consumer_done = True
-                    time.sleep(0.3)
+                    idle_count += 1
+                    # Metodo 1 (preciso): comprobar offsets reales
+                    if not self._consumer_done:
+                        if self._ha_alcanzado_fin_historico(consumer):
+                            self._consumer_done = True
+                            logger.info(
+                                "[%s] Consumer: historico agotado (offset-based). "
+                                "Esperando nuevos mensajes en tiempo real.",
+                                self.sim_id,
+                            )
+                        # Metodo 2 (fallback): idle prolongado
+                        elif idle_count >= _IDLE_POLLS_MAX:
+                            self._consumer_done = True
+                            logger.info(
+                                "[%s] Consumer: %d polls vacios, historico probablemente agotado.",
+                                self.sim_id, idle_count,
+                            )
+                    time.sleep(0.2)
                     continue
 
-                ralenti = 0
+                # Recibimos mensajes: reiniciar contador idle y procesar
+                idle_count = 0
                 aniadidos = 0
                 for tp, registros in polled.items():
                     topic = tp.topic
@@ -408,21 +479,39 @@ class SimulacionReplay(_SimulacionBase):
                         valor = record.value
                         if not isinstance(valor, dict):
                             valor = {"raw": valor}
+
+                        # Extraer timestamp logico del mensaje.
+                        # Prioridad: campo del payload > timestamp del broker Kafka.
                         ts = _ts_evento(valor, getattr(record, 'timestamp', None))
                         if ts is None:
+                            # Fallback: usar el reloj virtual actual del replay
                             ts = self._virtual_now
+
+                        # Filtrar por rango [started_at, end_at].
+                        # offsets_for_times garantiza que no leemos antes de
+                        # started_at, pero verificamos igualmente por seguridad.
                         if ts < self.started_at:
                             self.eventos_descartados += 1
                             continue
                         if self.end_at and ts > self.end_at:
                             self.eventos_descartados += 1
                             continue
+
                         self._buffer_push(topic, valor, ts)
                         aniadidos += 1
 
                 if aniadidos:
-                    logger.debug("[%s] Consumer + %d eventos (buffer=%d)",
+                    logger.debug("[%s] Consumer +%d eventos (buffer=%d)",
                                  self.sim_id, aniadidos, len(self._buffer))
+
+                # Comprobar fin de historico tras procesar el batch
+                if not self._consumer_done and self._ha_alcanzado_fin_historico(consumer):
+                    self._consumer_done = True
+                    logger.info(
+                        "[%s] Consumer: historico agotado tras batch (offset-based).",
+                        self.sim_id,
+                    )
+
         except Exception as exc:
             logger.exception("[%s] Loop consumer fallo: %s", self.sim_id, exc)
             self._consumer_error = repr(exc)
@@ -482,8 +571,10 @@ class SimulacionReplay(_SimulacionBase):
                 pasos = 0
                 while acumulador >= tick_virtual and pasos < 200 and not self._stop.is_set():
                     nuevo_virtual = self._virtual_now + timedelta(seconds=tick_virtual)
-                    if self.end_at and nuevo_virtual > self.end_at:
-                        nuevo_virtual = self.end_at
+                    # No superar end_at ni el momento actual si no hay end_at.
+                    techo = self.end_at or _ahora_utc()
+                    if nuevo_virtual > techo:
+                        nuevo_virtual = techo
                     self._virtual_now = nuevo_virtual
 
                     self._procesar_eventos_hasta(self._virtual_now)
@@ -495,7 +586,7 @@ class SimulacionReplay(_SimulacionBase):
                     acumulador -= tick_virtual
                     pasos += 1
 
-                    if self.end_at and self._virtual_now >= self.end_at:
+                    if nuevo_virtual >= techo:
                         break
 
                 if self._debe_terminar():
@@ -514,14 +605,26 @@ class SimulacionReplay(_SimulacionBase):
             )
 
     def _debe_terminar(self) -> bool:
+        """Decide si el player debe finalizar el replay.
+
+        Condiciones de parada:
+        1. Se llego al end_at pedido por el usuario Y el buffer esta vacio.
+        2. No hay end_at pero el consumer ha agotado el historico (offset-based
+           o idle), el buffer esta vacio Y el reloj virtual ha llegado o
+           superado el momento real actual (hemos reproducido todo).
+        """
+        with self._buffer_lock:
+            buffer_vacio = not self._buffer
+
+        # Caso 1: replay con end_at definido
         if self.end_at and self._virtual_now >= self.end_at:
-            with self._buffer_lock:
-                vacio = not self._buffer
-            return vacio
-        if self._consumer_done:
-            with self._buffer_lock:
-                vacio = not self._buffer
-            if vacio and self._virtual_now >= _ahora_utc():
+            return buffer_vacio
+
+        # Caso 2: replay "hasta el presente"
+        if self._consumer_done and buffer_vacio:
+            # Permitir que el reloj virtual alcance el momento en que
+            # se arranco el replay (no solo el momento del ultimo evento).
+            if self._virtual_now >= _ahora_utc():
                 return True
         return False
 

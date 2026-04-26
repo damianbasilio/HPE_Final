@@ -1,6 +1,7 @@
 
 
 import logging
+import math
 import threading
 import time
 import traceback
@@ -490,7 +491,11 @@ class FleetManager:
             self._desplegar_scout_si_disponible(incidente)
 
         with self._lock:
-            unidad = self._buscar_unidad_para(unidad_objetivo)
+            unidad = self._buscar_unidad_para(
+                unidad_objetivo,
+                lat=float(lat),
+                lon=float(lon),
+            )
             if not unidad:
                 incidente['incident_status'] = 'queued'
                 incidente['status'] = 'queued'
@@ -521,9 +526,20 @@ class FleetManager:
                 "[Flota] Asignado %s a %s (%s) para %s",
                 unidad.id, unidad_objetivo, unidad.metadatos.get('nombre', unidad.id), inc_id,
             )
+            # Calcular distancia aproximada al incidente para incluirla en la traza
+            try:
+                cos_lat = math.cos(math.radians(float(lat)))
+                dlat = (unidad.gps.latitud - float(lat)) * 111.32
+                dlon = (unidad.gps.longitud - float(lon)) * 111.32 * cos_lat
+                dist_km = round((dlat * dlat + dlon * dlon) ** 0.5, 2)
+            except Exception:
+                dist_km = None
+
             self._registrar_traza(
                 ev_id, 'asignado',
-                f"{unidad_objetivo}={unidad.id} nombre={unidad.metadatos.get('nombre', unidad.id)}",
+                f"{unidad_objetivo}={unidad.id} "
+                f"nombre={unidad.metadatos.get('nombre', unidad.id)} "
+                f"distancia={dist_km}km",
                 tipo=tipo_evento,
             )
             return inc_id
@@ -533,7 +549,14 @@ class FleetManager:
             pendientes = [i for i in self.incidentes.values() if i.get('status') == 'queued']
             for inc in pendientes:
                 tipo = inc.get('tipo_unidad_solicitada', 'policia')
-                unidad = self._buscar_unidad_para(tipo)
+                lat_inc = inc.get('lat')
+                lon_inc = inc.get('lon')
+                try:
+                    lat_f = float(lat_inc) if lat_inc is not None else None
+                    lon_f = float(lon_inc) if lon_inc is not None else None
+                except (TypeError, ValueError):
+                    lat_f = lon_f = None
+                unidad = self._buscar_unidad_para(tipo, lat=lat_f, lon=lon_f)
                 if unidad:
                     nuevo_inc = dict(inc)
                     self._activar_intervencion(unidad, nuevo_inc)
@@ -562,10 +585,32 @@ class FleetManager:
             'origen': evento.get('origen', 'kafka')
         }
 
-    def _buscar_unidad_para(self, tipo: str) -> Optional[VehiculoBase]:
+    def _buscar_unidad_para(self, tipo: str,
+                             lat: Optional[float] = None,
+                             lon: Optional[float] = None) -> Optional[VehiculoBase]:
+        """Devuelve la unidad libre mas cercana al incidente del tipo solicitado.
+
+        Si no se dispone de coordenadas del incidente, devuelve la primera
+        unidad libre (orden de insercion). La distancia se calcula con una
+        aproximacion rapida en km (sin haversine completo) suficientemente
+        precisa para las dimensiones de la isla de Aruba.
+        """
         candidatos = [v for v in self.vehiculos.values()
                       if v.TIPO == tipo and not self._tiene_escenario_activo(v)]
-        return candidatos[0] if candidatos else None
+        if not candidatos:
+            return None
+        if lat is None or lon is None:
+            return candidatos[0]
+
+        # cos(12.5 deg) ~= 0.976 — Aruba esta cerca del ecuador, buena aproximacion
+        cos_lat = math.cos(math.radians(lat))
+
+        def dist_sq(v: VehiculoBase) -> float:
+            dlat = (v.gps.latitud - lat) * 111.32
+            dlon = (v.gps.longitud - lon) * 111.32 * cos_lat
+            return dlat * dlat + dlon * dlon
+
+        return min(candidatos, key=dist_sq)
 
     def _tiene_escenario_activo(self, veh: VehiculoBase) -> bool:
         if veh.id in self.asignaciones:

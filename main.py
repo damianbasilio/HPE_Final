@@ -13,6 +13,8 @@ from io import BytesIO
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for, Response
 from flask_session import Session
 
+from functools import wraps
+
 from auth import autenticar_usuario, cerrar_sesion, obtener_usuario_actual, registrar_sesion
 from config import (
     CACHE_ESTATICOS,
@@ -249,13 +251,56 @@ def construir_telemetria(veh) -> dict:
         },
     }
 
-bus.iniciar(on_event=fleet.manejar_evento)
+_generador_demo = fleet.activar_auto_demo(
+    bus,
+    intervalo_min_s=float(os.getenv('AUTO_DEMO_MIN_S', 60)),
+    intervalo_max_s=float(os.getenv('AUTO_DEMO_MAX_S', 120)),
+    silencio_kafka_s=float(os.getenv('AUTO_DEMO_SILENCIO_S', 90)),
+    max_activos=int(os.getenv('AUTO_DEMO_MAX_ACTIVOS', 6)),
+)
+
+if _generador_demo is not None:
+    from generador_incidentes import envolver_callback_kafka
+    bus.iniciar(on_event=envolver_callback_kafka(fleet.manejar_evento, _generador_demo))
+else:
+    bus.iniciar(on_event=fleet.manejar_evento)
 
 threading.Thread(target=bucle_flotas, daemon=True).start()
 threading.Thread(target=bucle_telemetria, daemon=True).start()
 
+def _es_request_api() -> bool:
+    return (
+        request.is_json
+        or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        or request.path.startswith('/api/')
+        or 'application/json' in (request.headers.get('Accept') or '')
+    )
+
+
+def requerir_operador(f):
+    """Decorator backend para endpoints que solo puede invocar un operador.
+
+    Devuelve 403 si la sesion no es operador (en JSON / API) y redirige a
+    /visualizador si fuera una navegacion de pagina.
+    """
+    @wraps(f)
+    def _envuelto(*args, **kwargs):
+        if not session.get('autenticado'):
+            if _es_request_api():
+                return jsonify({"error": "No autenticado"}), 401
+            return redirect(url_for('login'))
+        if session.get('rol') != 'operador':
+            if _es_request_api():
+                return jsonify({"error": "No autorizado: se requiere rol operador"}), 403
+            return redirect(url_for('visualizador'))
+        return f(*args, **kwargs)
+    return _envuelto
+
+
 @app.before_request
 def proteger_vistas():
+    # Endpoints publicos accesibles sin autenticacion (ciudadano, healths,
+    # APIs publicas y assets estaticos).
     public_endpoints = {
         'health', 'health_kafka', 'health_kafka_probe', 'health_inventory',
         'health_fleet', 'health_osrm', 'health_events_trace',
@@ -277,9 +322,13 @@ def proteger_vistas():
     if not session.get('autenticado'):
         return redirect(url_for('login'))
 
-    # Role-based access: only operators can access the operator dashboard
-    if request.endpoint == 'operador' and session.get('rol') != 'operador':
+    rol = session.get('rol')
+
+    # Separacion estricta entre consolas: cada rol solo accede a la suya.
+    if request.endpoint == 'operador' and rol != 'operador':
         return redirect(url_for('visualizador'))
+    if request.endpoint == 'visualizador' and rol != 'visualizador':
+        return redirect(url_for('operador'))
 
 @app.route('/')
 def index():
@@ -660,6 +709,30 @@ def internal_vehicles():
 @app.route('/_internal/incidents')
 def internal_incidents():
     return jsonify({"incidents": fleet.listado_incidentes()})
+
+@app.route('/fleet/units', methods=['POST'])
+@requerir_operador
+def fleet_add_unit():
+    """Anade una unidad nueva a la flota. Solo operador."""
+    payload = request.get_json(silent=True) or {}
+    tipo = (payload.get('tipo') or '').strip().lower()
+    propulsion = (payload.get('propulsion') or 'combustion').strip().lower()
+    nombre = (payload.get('nombre') or '').strip() or None
+    if tipo not in ('policia', 'ambulancia', 'bomberos', 'proteccion_civil', 'dron'):
+        return jsonify({"error": "Tipo no valido"}), 400
+    info = fleet.agregar_unidad(tipo=tipo, propulsion=propulsion, nombre=nombre)
+    if not info:
+        return jsonify({"error": "No se pudo crear la unidad"}), 500
+    return jsonify({"ok": True, "unit": info})
+
+@app.route('/fleet/units/<vehicle_id>', methods=['DELETE'])
+@requerir_operador
+def fleet_remove_unit(vehicle_id):
+    """Retira una unidad de la flota. Solo operador."""
+    ok = fleet.eliminar_unidad(vehicle_id)
+    if not ok:
+        return jsonify({"error": "Unidad no encontrada"}), 404
+    return jsonify({"ok": True, "vehicle_id": vehicle_id})
 
 @app.route('/costs/summary')
 def costs_summary():

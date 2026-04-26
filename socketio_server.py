@@ -83,11 +83,28 @@ def registrar_manejadores(fleet):
 
     @socketio.on('control_incidente')
     def control_incidente(data):
+        """Manejador de comandos de control. Reservado al rol operador.
 
+        El visualizador no puede asignar, cerrar, solicitar apoyo ni
+        difundir mensajes a la flota. Todo intento devuelve 403 logico
+        via el evento `error_control` para que la UI lo informe.
+        """
         from flask import session
+        if not session.get('autenticado'):
+            emit('error_control', {"error": "No autenticado", "codigo": 401})
+            logger.warning("[Socket] control_incidente bloqueado: sin sesion")
+            return
         rol = session.get('rol') or session.get('usuario_rol')
         if rol != 'operador':
-            emit('error_control', {"error": "No autorizado"})
+            emit('error_control', {
+                "error": "No autorizado: se requiere rol operador",
+                "codigo": 403,
+                "rol_actual": rol,
+            })
+            logger.warning(
+                "[Socket] control_incidente bloqueado por rol=%s usuario=%s",
+                rol, session.get('usuario_nombre') or session.get('usuario_id'),
+            )
             return
 
         accion = (data or {}).get('accion')

@@ -70,6 +70,33 @@ class VehiculoBase:
 
         self.factor_entorno = 1.0
 
+        # ----- Modelo termico realista por tipo de propulsion -----
+        # ICE: punto operativo 88-95 C, maximo seguro 110.
+        # EV / dron: motor mucho mas frio, opera 35-55 C.
+        if self.propulsion == 'electrico' or self.propulsion == 'unico':
+            self._temp_objetivo_op = 42.0          # punto medio normal
+            self._temp_op_min = 35.0
+            self._temp_op_max = 55.0
+            self._temp_techo_seguro = 70.0
+            self._inercia_termica = 35.0           # constante grande -> sube/baja despacio
+            self._ganancia_carga = 0.18            # cuanto sube la temp por carga
+        else:
+            self._temp_objetivo_op = 90.0
+            self._temp_op_min = 88.0
+            self._temp_op_max = 95.0
+            self._temp_techo_seguro = 110.0
+            self._inercia_termica = 55.0
+            self._ganancia_carga = 0.32
+
+        # Empieza a temperatura ambiente (frio) salvo que el rango inicial
+        # configurado lo eleve mas. Asi se observa el calentamiento inicial.
+        self._temp_ambiente_actual = float(TEMP_AMBIENTE)
+        self._aceleracion_actual = 0.0  # variable (no constante) para realismo
+
+        # Pequenas variaciones por unidad para que cada coche se sienta unico
+        self._jitter_motor_offset = random.uniform(-2.5, 2.5)
+        self._estilo_conduccion = random.uniform(0.85, 1.15)
+
     def _init_escenario(self):
         self.escenario_activo = self.ESTADO_BASE
         self.tiempo_escenario_inicio = datetime.now()
@@ -315,6 +342,7 @@ class VehiculoBase:
         self.velocidad = 0
         self.velocidad_objetivo = 0
         self.en_movimiento = False
+        self._aceleracion_actual = 0.0
 
         self.combustible = min(100.0, self.combustible + TASA_REABASTECIMIENTO * delta_time)
         self.tiempo_restante_recarga = max(0, self.tiempo_restante_recarga - delta_time)
@@ -323,8 +351,10 @@ class VehiculoBase:
             self.reabasteciendo = False
             self.terminar_escenario()
 
-        if self.temperatura_motor > TEMP_AMBIENTE:
-            self.temperatura_motor = max(TEMP_AMBIENTE, self.temperatura_motor - 0.05 * delta_time)
+        objetivo_idle = self._temp_ambiente_actual + 4.0
+        if self.temperatura_motor > objetivo_idle:
+            paso = (self.temperatura_motor - objetivo_idle) / max(1.0, self._inercia_termica * 0.5)
+            self.temperatura_motor = max(objetivo_idle, self.temperatura_motor - paso * delta_time)
 
     def _procesar_fases(self, delta_time):
         if self.en_camino:
@@ -376,11 +406,16 @@ class VehiculoBase:
             self.en_movimiento = False
 
     def _procesar_escena_estacionaria(self, delta_time):
-        if self.temperatura_motor > TEMP_AMBIENTE:
-            self.temperatura_motor = max(TEMP_AMBIENTE, self.temperatura_motor - 0.02 * delta_time)
+        # En escena (motor ralenti / apagado segun escenario), tiende al
+        # punto idle relativo al ambiente. Disipa con la inercia termica.
+        objetivo_idle = self._temp_ambiente_actual + 6.0
+        if self.temperatura_motor > objetivo_idle:
+            paso = (self.temperatura_motor - objetivo_idle) / max(1.0, self._inercia_termica)
+            self.temperatura_motor = max(objetivo_idle, self.temperatura_motor - paso * delta_time)
         self.en_movimiento = False
         self.velocidad_objetivo = 0
         self.velocidad = 0
+        self._aceleracion_actual = 0.0
 
     def _calcular_velocidad_objetivo(self):
         objetivo = self.velocidad_objetivo
@@ -436,28 +471,102 @@ class VehiculoBase:
         return objetivo
 
     def _actualizar_velocidad(self, objetivo, delta_time):
-        if self.velocidad != objetivo:
-            diff = objetivo - self.velocidad
+        """Aceleracion / frenado realista, no lineal.
 
-            if abs(diff) > self.aceleracion_max * delta_time:
-                self.velocidad += math.copysign(self.aceleracion_max * delta_time, diff)
+        - La fuerza util cae con la velocidad (motor real: la potencia disponible
+          decrece y aumenta la resistencia aerodinamica).
+        - Frenado mas agresivo que la aceleracion (es lo habitual).
+        - Pequenas correcciones de "conductor" (jitter) cuando hay velocidad,
+          ademas de un estilo de conduccion fijo por unidad.
+        - El factor de entorno (clima) limita el techo de velocidad.
+        """
+        if delta_time <= 0:
+            self._aceleracion_actual = 0.0
+            return
+
+        objetivo = max(0.0, float(objetivo or 0.0))
+        diff = objetivo - self.velocidad
+
+        if abs(diff) < 0.05:
+            self.velocidad = objetivo
+            self._aceleracion_actual = 0.0
+        else:
+            a_base = float(self.aceleracion_max or 5)
+            if diff > 0:
+                v_norm = min(1.0, max(0.0, self.velocidad / max(40.0, self.velocidad_max_unidad)))
+                factor_potencia = max(0.18, 1.0 - 0.78 * (v_norm ** 1.4))
+                a = a_base * factor_potencia * self._estilo_conduccion
             else:
+                a = a_base * 1.6
+            paso = a * delta_time
+            if paso >= abs(diff):
                 self.velocidad = objetivo
+                self._aceleracion_actual = diff / delta_time
+            else:
+                self.velocidad += math.copysign(paso, diff)
+                self._aceleracion_actual = math.copysign(a, diff)
 
-        if self.velocidad > 0:
-            self.velocidad = max(0, self.velocidad + random.uniform(-0.5, 0.5))
+        if self.velocidad > 1.0:
+            jitter = random.uniform(-0.35, 0.35) * (1.0 + self.velocidad / 120.0)
+            self.velocidad = max(0.0, self.velocidad + jitter)
+
+        tope = float(self.velocidad_max_unidad or VELOCIDAD_MAXIMA)
+        if self.velocidad > tope:
+            self.velocidad = tope
 
     def _actualizar_motor(self, delta_time):
+        """Modelo termico realista del motor.
+
+        - Calentamiento desde la temperatura ambiente real (Kafka) hacia el
+          punto de operacion (88-95 C ICE, 35-55 C EV/dron).
+        - La temperatura objetivo sube con la carga (velocidad + aceleracion)
+          y el modificador de escenario (`temp_factor`).
+        - Disipacion mas lenta cuando esta caliente y mas eficiente con
+          viento/lluvia (factor_entorno < 1.0 favorece el enfriamiento).
+        - Se aplica un "jitter" pequeno por unidad para que cada vehiculo
+          tenga su propia firma termica.
+        """
+        if delta_time <= 0:
+            return
+
+        try:
+            from entorno import temperatura_ambiente_actual as _temp_amb
+            t_amb = float(_temp_amb())
+        except Exception:
+            t_amb = float(TEMP_AMBIENTE)
+        # Suaviza el ambiente para evitar saltos bruscos entre lecturas Kafka
+        self._temp_ambiente_actual += (t_amb - self._temp_ambiente_actual) * min(1.0, delta_time / 30.0)
+
+        carga = 0.0
         if self.velocidad > 0:
-            incremento = (self.velocidad / 100.0) * 0.2 * self.temp_factor * delta_time
-            self.temperatura_motor += incremento
+            v_norm = min(1.5, self.velocidad / 80.0)
+            a_norm = max(0.0, self._aceleracion_actual / max(1.0, self.aceleracion_max or 5))
+            carga = (0.55 * v_norm) + (0.45 * a_norm)
+        carga *= float(self.temp_factor or 1.0)
 
-        enfriamiento = 1.0 * delta_time
-        if self.temperatura_motor > TEMP_AMBIENTE:
-            tasa = 2.5 if self.velocidad == 0 else 0.2
-            self.temperatura_motor = max(TEMP_AMBIENTE, self.temperatura_motor - enfriamiento * tasa)
+        delta_op = (self._temp_op_max - self._temp_op_min)
+        objetivo_op = self._temp_objetivo_op + carga * (delta_op * 0.8 + 5.0)
 
-        self.temperatura_motor = max(TEMP_AMBIENTE, min(self.temperatura_motor, TEMP_MAXIMA))
+        if self.velocidad <= 0.5:
+            objetivo = self._temp_ambiente_actual + 6.0
+            inercia = self._inercia_termica * 0.6
+        else:
+            objetivo = max(self._temp_ambiente_actual + 6.0, objetivo_op)
+            inercia = self._inercia_termica
+
+        delta = (objetivo - self.temperatura_motor) / max(1.0, inercia)
+        self.temperatura_motor += delta * delta_time * (1.0 + self._ganancia_carga * carga)
+
+        if self.factor_entorno and self.factor_entorno < 1.0:
+            asistencia = (1.0 - self.factor_entorno) * 0.6 * delta_time
+            self.temperatura_motor -= asistencia
+
+        if delta_time >= 0.25:
+            self.temperatura_motor += random.uniform(-0.15, 0.15)
+
+        techo = max(self._temp_techo_seguro, TEMP_MAXIMA)
+        suelo = min(self._temp_ambiente_actual, TEMP_AMBIENTE)
+        self.temperatura_motor = max(suelo - 1.0, min(self.temperatura_motor, techo))
 
     def _actualizar_consumo(self, delta_time):
         if self.velocidad > 0:

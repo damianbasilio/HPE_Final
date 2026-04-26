@@ -268,6 +268,39 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Boton "+ unidad": agrega un vehiculo permanente a la flota.
+  // Usa la nueva ruta REST /fleet/units (protegida con requerir_operador).
+  const botonAddUnidad = document.getElementById('btn-add-unit');
+  if (botonAddUnidad) {
+    botonAddUnidad.addEventListener('click', async () => {
+      const tipos = ['policia', 'ambulancia', 'bomberos', 'proteccion_civil', 'dron'];
+      const tipo = prompt(`Tipo de unidad nueva (${tipos.join(' / ')}):`, 'policia');
+      if (!tipo || !tipos.includes(tipo)) {
+        if (tipo) mostrarFlash(`Tipo no valido: ${tipo}`, 'error');
+        return;
+      }
+      const propulsionDef = tipo === 'dron' ? 'unico' : 'combustion';
+      const propulsion = prompt('Propulsion (combustion / electrico / unico):', propulsionDef) || propulsionDef;
+      const nombre = prompt('Nombre identificativo (opcional):', '') || null;
+      try {
+        const res = await fetch('/fleet/units', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tipo, propulsion, nombre }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          mostrarFlash(data.error || 'Error agregando unidad', 'error');
+          return;
+        }
+        mostrarFlash(`Unidad agregada: ${data.nombre || data.id}`, 'ok');
+        cargarDatosRest();
+      } catch (err) {
+        mostrarFlash('Error de red agregando unidad', 'error');
+      }
+    });
+  }
+
   
 
   const chatForm = document.getElementById('chat-form');

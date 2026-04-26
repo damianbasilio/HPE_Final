@@ -13,7 +13,17 @@
 {% endblock %}
 
 {% block content %}
-<div class="dt-dashboard">
+<div class="dt-dashboard dt-dashboard-visualizador" data-consola="visualizador">
+  <header class="dt-console-banner banner-visualizador">
+    <div class="banner-rol">
+      <span class="banner-rol-tag">CONSOLA · VISUALIZADOR</span>
+      <span class="banner-rol-sub">Solo consulta y monitorizacion · sin control directo</span>
+    </div>
+    <div class="banner-rol-meta">
+      <span class="banner-rol-perms">Permisos: lectura, replay y NLP</span>
+    </div>
+  </header>
+
   <header class="dt-summary">
     <div class="dt-card">
       <span class="label">Modo</span>

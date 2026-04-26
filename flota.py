@@ -58,13 +58,29 @@ ALIAS_TIPO_EVENTO = {
     "blackout": "power_outage",
 }
 
+# Plantilla ampliada y mas realista: 6 patrullas + 4 ambulancias + 3 bomberos
+# + 3 proteccion civil + 2 drones = 18 unidades. Mezcla combustion / electrico
+# en patrullas y ambulancias para que la diferencia de tarifa y consumo se
+# aprecie en la simulacion.
 PLANTILLA_DEFECTO: List[tuple] = [
     ("policia",          "combustion", "Patrulla 01"),
-    ("policia",          "electrico",  "Patrulla 02 EV"),
+    ("policia",          "combustion", "Patrulla 02"),
+    ("policia",          "combustion", "Patrulla 03"),
+    ("policia",          "combustion", "Patrulla 04"),
+    ("policia",          "electrico",  "Patrulla 05 EV"),
+    ("policia",          "electrico",  "Patrulla 06 EV"),
     ("ambulancia",       "combustion", "Ambulancia 01"),
+    ("ambulancia",       "combustion", "Ambulancia 02"),
+    ("ambulancia",       "combustion", "Ambulancia 03"),
+    ("ambulancia",       "electrico",  "Ambulancia 04 EV"),
     ("bomberos",         "combustion", "Bomberos 01"),
+    ("bomberos",         "combustion", "Bomberos 02"),
+    ("bomberos",         "electrico",  "Bomberos 03 EV"),
     ("proteccion_civil", "combustion", "PC 01"),
+    ("proteccion_civil", "combustion", "PC 02"),
+    ("proteccion_civil", "electrico",  "PC 03 EV"),
     ("dron",             "unico",      "Dron 01"),
+    ("dron",             "unico",      "Dron 02"),
 ]
 
 def _duracion_por_severidad(severidad: Optional[str]) -> int:
@@ -240,7 +256,82 @@ class FleetManager:
         self._traza: deque = deque(maxlen=200)
 
         self.historial_costes: deque = deque(maxlen=200)
+        self._generador_demo = None
         self._crear_flotas_base(plantilla or PLANTILLA_DEFECTO)
+
+    def activar_auto_demo(self, bus=None,
+                          intervalo_min_s: float = 60.0,
+                          intervalo_max_s: float = 120.0,
+                          silencio_kafka_s: float = 90.0,
+                          max_activos: int = 6):
+        """Arranca el generador de incidentes ficticios para mantener la demo viva.
+
+        Devuelve el generador (con metodo `notificar_evento_real`) para que el
+        wrapper del bus Kafka pueda avisar cuando llegan eventos reales y el
+        generador se mantenga en silencio mientras los haya.
+        """
+        if self._generador_demo is not None:
+            return self._generador_demo
+        try:
+            from generador_incidentes import GeneradorIncidentesDemo
+        except Exception as exc:
+            logger.warning("[Flota] No se pudo importar el generador demo: %s", exc)
+            return None
+        self._generador_demo = GeneradorIncidentesDemo(
+            self, bus,
+            intervalo_min_s=intervalo_min_s,
+            intervalo_max_s=intervalo_max_s,
+            silencio_kafka_s=silencio_kafka_s,
+            max_activos=max_activos,
+        )
+        self._generador_demo.iniciar()
+        return self._generador_demo
+
+    def generador_demo(self):
+        return self._generador_demo
+
+    def agregar_unidad(self, tipo: str, propulsion: str = 'combustion',
+                        nombre: Optional[str] = None) -> Optional[dict]:
+        """Anade una nueva unidad operativa al gemelo digital.
+
+        Devuelve un dict con `id` y `nombre` cuando tiene exito, o `None`
+        si el tipo/propulsion no se puede instanciar.
+        """
+        with self._lock:
+            tipo_norm = str(tipo or '').strip().lower()
+            prop_norm = str(propulsion or '').strip().lower() or 'combustion'
+            if not tipo_norm:
+                return None
+            if not nombre:
+                ya = sum(1 for v in self.vehiculos.values() if v.TIPO == tipo_norm) + 1
+                nombre = f"{tipo_norm.capitalize()} {ya:02d}"
+            veh = self._instanciar_unidad(tipo_norm, prop_norm, nombre)
+            if not veh:
+                return None
+            return {
+                'id': veh.id,
+                'tipo': veh.TIPO,
+                'propulsion': veh.propulsion,
+                'nombre': veh.metadatos.get('nombre', veh.id),
+            }
+
+    def eliminar_unidad(self, vehiculo_id: str) -> bool:
+        """Retira una unidad de la flota. Si esta en intervencion la cierra primero."""
+        with self._lock:
+            veh = self.vehiculos.pop(vehiculo_id, None)
+            if not veh:
+                return False
+            inc_id = self.asignaciones.pop(vehiculo_id, None)
+            if inc_id and inc_id in self.incidentes:
+                inc = self.incidentes[inc_id]
+                inc['status'] = 'cancelled'
+                inc['incident_status'] = 'cancelled'
+                inc['resolved_at'] = datetime.now().isoformat()
+            try:
+                veh.terminar_escenario()
+            except Exception:
+                pass
+            return True
 
     def _registrar_traza(self, evento_id: str, decision: str, motivo: str = "",
                          tipo: Optional[str] = None, payload: Optional[dict] = None) -> None:

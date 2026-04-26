@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from config import CACHE_ENTORNO
+from config import CACHE_ENTORNO, TEMP_AMBIENTE
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +13,34 @@ _ultimo_ts = 0.0
 def configurar_bus(kafka_bus) -> None:
     global _bus
     _bus = kafka_bus
+
+
+def temperatura_ambiente_actual() -> float:
+    """Devuelve la temperatura ambiente real (Kafka) o el valor por defecto.
+
+    Utilizada por la simulacion del motor de cada vehiculo para que el
+    arranque en frio, la disipacion y el punto de operacion dependan de
+    la temperatura real de la isla (en lugar de un valor fijo).
+    """
+    try:
+        if _bus is None:
+            return float(TEMP_AMBIENTE)
+        lectura = _bus.ultimo_clima()
+        if not isinstance(lectura, dict):
+            return float(TEMP_AMBIENTE)
+        temp = lectura.get('temperature_c')
+        if temp is None:
+            temp = lectura.get('temperature')
+        if temp is None:
+            temp = lectura.get('temp')
+        if temp is None:
+            return float(TEMP_AMBIENTE)
+        valor = float(temp)
+        if valor < -20 or valor > 60:
+            return float(TEMP_AMBIENTE)
+        return valor
+    except Exception:
+        return float(TEMP_AMBIENTE)
 
 def interpretar_clima(lectura: dict) -> dict:
     """Interpreta una lectura de clima cruda y devuelve un contexto enriquecido.

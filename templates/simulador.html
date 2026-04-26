@@ -13,7 +13,17 @@
 {% endblock %}
 
 {% block content %}
-<div class="dt-dashboard">
+<div class="dt-dashboard dt-dashboard-operador" data-consola="operador">
+  <header class="dt-console-banner banner-operador">
+    <div class="banner-rol">
+      <span class="banner-rol-tag">CONSOLA · OPERADOR</span>
+      <span class="banner-rol-sub">Control activo · puede asignar, cerrar y comandar</span>
+    </div>
+    <div class="banner-rol-meta">
+      <span class="banner-rol-perms">Permisos: control total</span>
+    </div>
+  </header>
+
   <header class="dt-summary">
     <div class="dt-card">
       <span class="label">Total flota</span>
@@ -24,12 +34,14 @@
       <span class="value" id="flota-activos">--</span>
     </div>
     <div class="dt-card actions">
-      <button class="btn btn-ghost" data-apoyo="ambulancia">+ ambulancia</button>
-      <button class="btn btn-ghost" data-apoyo="bomberos">+ bomberos</button>
-      <button class="btn btn-ghost" data-apoyo="policia">+ policia</button>
-      <button class="btn btn-ghost" data-apoyo="proteccion_civil">+ proteccion civil</button>
+      <button class="btn btn-ghost" data-apoyo="ambulancia">+ apoyo ambulancia</button>
+      <button class="btn btn-ghost" data-apoyo="bomberos">+ apoyo bomberos</button>
+      <button class="btn btn-ghost" data-apoyo="policia">+ apoyo policia</button>
+      <button class="btn btn-ghost" data-apoyo="proteccion_civil">+ apoyo PC</button>
       <button class="btn btn-ghost" data-apoyo="dron">+ dron scout</button>
       <button class="btn btn-primary" id="btn-mensaje-central">Mensaje a flota</button>
+      <span class="actions-divider" aria-hidden="true"></span>
+      <button class="btn btn-ghost" id="btn-add-unit" title="Agregar unidad permanente">+ unidad</button>
     </div>
   </header>
 

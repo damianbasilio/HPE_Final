@@ -97,7 +97,8 @@ HPE_Final/
 |-- auth.py                  # Login y gestion de sesiones
 |-- helpers.py
 |-- apis/
-|   `-- team-api.yaml        # OpenAPI 3.1 publicado en /openapi.yaml
+|   |-- aruba-island-inventory.json  # Contrato evaluacion Team Fleet API
+|   `-- aruba-team-api.json          # Contrato Inventory API Aruba
 |-- static/
 |   |-- css/{style.css, dashboard.css}
 |   `-- js/{panel_flota.js, operador.js, visualizador.js}

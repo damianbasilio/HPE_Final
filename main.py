@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from io import BytesIO
 
@@ -207,6 +208,7 @@ def construir_telemetria(veh) -> dict:
         "costs": payload_costes,
         "specialty_data": especializado,
         "metadata": {
+            "trace_id": str(uuid.uuid4()),
             "producer": "digital-twin-backend",
         },
     }
@@ -374,12 +376,16 @@ def health_inventory():
         roads = inventario.obtener_carreteras() or []
         pois = inventario.obtener_pois() or []
         stations = inventario.obtener_estaciones() or []
+        road_types = inventario.obtener_tipos_carretera() or []
+        poi_types = inventario.obtener_tipos_poi() or []
         muestra_road = roads[0] if roads else None
         return jsonify({
             "base_url": inventario.base_url,
             "roads": len(roads),
             "pois": len(pois),
             "stations": len(stations),
+            "road_types": road_types,
+            "poi_types": poi_types,
             "muestra_road": muestra_road,
             "ok": True,
         })
@@ -479,12 +485,22 @@ def health_kafka_probe():
 
 @app.route('/openapi.yaml')
 def openapi():
-    ruta = os.path.join(os.path.dirname(__file__), 'apis', 'team-api.yaml')
-    if not os.path.exists(ruta):
-        return Response("OpenAPI spec no encontrada", status=404, mimetype='text/plain')
-    with open(ruta, 'r', encoding='utf-8') as f:
-        contenido = f.read()
-    return Response(contenido, mimetype='text/plain; charset=utf-8')
+    base = os.path.join(os.path.dirname(__file__), 'apis')
+    candidatas = [
+        (os.path.join(base, 'team-api.yaml'), 'text/plain; charset=utf-8'),
+        # Nota: en este repositorio los JSON de contratos estan invertidos en nombre.
+        # El contrato del equipo (fleet API) reside en aruba-island-inventory.json.
+        (os.path.join(base, 'aruba-island-inventory.json'), 'text/plain; charset=utf-8'),
+        (os.path.join(base, 'aruba-team-api.json'), 'text/plain; charset=utf-8'),
+    ]
+
+    for ruta, mimetype in candidatas:
+        if os.path.exists(ruta):
+            with open(ruta, 'r', encoding='utf-8') as f:
+                contenido = f.read()
+            return Response(contenido, mimetype=mimetype)
+
+    return Response("OpenAPI spec no encontrada en /apis", status=404, mimetype='text/plain')
 
 @app.route('/vehicles/status')
 def vehicles_status():

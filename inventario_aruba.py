@@ -14,15 +14,19 @@ class InventarioAruba:
         self.base_url = base_url.rstrip("/")
         self.cache_ttl = cache_ttl
         self._lock = threading.Lock()
-        self._cache: Dict[str, List[dict]] = {
+        self._cache: Dict[str, list] = {
             "stations": [],
             "pois": [],
-            "roads": []
+            "roads": [],
+            "poi_types": [],
+            "road_types": [],
         }
         self._cache_time: Dict[str, float] = {
             "stations": 0.0,
             "pois": 0.0,
-            "roads": 0.0
+            "roads": 0.0,
+            "poi_types": 0.0,
+            "road_types": 0.0,
         }
 
     def _get(self, path: str, params: Optional[dict] = None) -> dict:
@@ -64,6 +68,17 @@ class InventarioAruba:
             with self._lock:
                 return list(self._cache.get(key, []))
 
+    def _fetch_types(self, path: str) -> List[str]:
+        payload = self._get(path)
+        if isinstance(payload, list):
+            return [str(x) for x in payload]
+        if isinstance(payload, dict):
+            for clave in ('types', 'items', 'data', 'results'):
+                values = payload.get(clave)
+                if isinstance(values, list):
+                    return [str(x) for x in values]
+        return []
+
     def obtener_estaciones(self) -> List[dict]:
         return self._get_cached("stations", lambda: self._fetch_paginated("/api/v1/stations", limit=20))
 
@@ -72,6 +87,12 @@ class InventarioAruba:
 
     def obtener_carreteras(self) -> List[dict]:
         return self._get_cached("roads", lambda: self._fetch_paginated("/api/v1/roads", limit=20))
+
+    def obtener_tipos_poi(self) -> List[str]:
+        return self._get_cached("poi_types", lambda: self._fetch_types("/api/v1/pois/types"))
+
+    def obtener_tipos_carretera(self) -> List[str]:
+        return self._get_cached("road_types", lambda: self._fetch_types("/api/v1/roads/types"))
 
     def obtener_estacion(self, station_id: str) -> Optional[dict]:
         try:
@@ -98,3 +119,5 @@ class InventarioAruba:
         self.obtener_estaciones()
         self.obtener_pois()
         self.obtener_carreteras()
+        self.obtener_tipos_poi()
+        self.obtener_tipos_carretera()

@@ -151,10 +151,10 @@ class PanelFlota {
       const svgIcon = _getSvgPoi(poi.tipo);
       const icon = L.divIcon({
         className: '',
-        html: `<div class="dt-poi-marker" style="border-color:${poi.color};color:${poi.color};">${svgIcon}</div>`,
-        iconSize: [28, 28],
-        iconAnchor: [14, 14],
-        tooltipAnchor: [0, -16],
+        html: `<div class="dt-poi-marker">${svgIcon}</div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+        tooltipAnchor: [0, -10],
       });
       L.marker([poi.lat, poi.lon], { icon, zIndexOffset: -200 })
         .bindTooltip(
